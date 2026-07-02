@@ -19,6 +19,8 @@ Uso (chamado automaticamente por sofascore_stats.py):
 
 import json
 
+from flags import TEAM_FLAGS
+
 
 def build_dashboard(games, groups, out_path="dashboard.html",
                     phases=None, generated_at=""):
@@ -35,7 +37,8 @@ def build_dashboard(games, groups, out_path="dashboard.html",
         "generatedAt": generated_at,
     }
     data_json = json.dumps(payload, ensure_ascii=False)
-    html = _TEMPLATE.replace("__DATA__", data_json)
+    flags_json = json.dumps(TEAM_FLAGS, ensure_ascii=False)
+    html = _TEMPLATE.replace("__DATA__", data_json).replace("__FLAGS__", flags_json)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(html)
     return out_path
@@ -135,6 +138,9 @@ _TEMPLATE = r"""<!doctype html>
   .caret{color:var(--muted); font-size:10px; width:10px; transition:transform .12s}
   .caret.open{transform:rotate(90deg)}
   .dot{width:10px; height:10px; border-radius:3px; flex:0 0 auto}
+  .flag{width:18px; height:13px; border-radius:2px; object-fit:cover;
+    vertical-align:-2px; margin-right:6px; flex:0 0 auto;
+    box-shadow:0 0 0 .5px rgba(11,11,11,.18)}
   .games{padding:2px 0 8px 26px}
   .gopt{display:flex; align-items:center; gap:8px; padding:3px 0; font-size:13px;
     color:var(--ink2); cursor:pointer}
@@ -231,23 +237,12 @@ const PHASES = DATA.phases;
 const TEAMS = [...new Set(GAMES.map(g => g.selecao))]
   .sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
-// Bandeiras (emoji Unicode) por seleção — funcionam offline, sem imagens.
-// Nomes em PT batem com TEAM_PT do coletor. Sem correspondência = sem bandeira.
-const FLAGS = {
-  "Argélia":"🇩🇿","Argentina":"🇦🇷","Austrália":"🇦🇺","Áustria":"🇦🇹",
-  "Bélgica":"🇧🇪","Bósnia e Herzegovina":"🇧🇦","Brasil":"🇧🇷","Cabo Verde":"🇨🇻",
-  "Canadá":"🇨🇦","Colômbia":"🇨🇴","Croácia":"🇭🇷","Curaçao":"🇨🇼","Tchéquia":"🇨🇿",
-  "Costa do Marfim":"🇨🇮","RD Congo":"🇨🇩","Equador":"🇪🇨","Egito":"🇪🇬",
-  "Inglaterra":"🏴󠁧󠁢󠁥󠁮󠁧󠁿","França":"🇫🇷","Alemanha":"🇩🇪","Gana":"🇬🇭","Haiti":"🇭🇹",
-  "Irã":"🇮🇷","Iraque":"🇮🇶","Japão":"🇯🇵","Jordânia":"🇯🇴","México":"🇲🇽",
-  "Marrocos":"🇲🇦","Países Baixos":"🇳🇱","Nova Zelândia":"🇳🇿","Noruega":"🇳🇴",
-  "Panamá":"🇵🇦","Paraguai":"🇵🇾","Portugal":"🇵🇹","Catar":"🇶🇦",
-  "Arábia Saudita":"🇸🇦","Escócia":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","Senegal":"🇸🇳","África do Sul":"🇿🇦",
-  "Coreia do Sul":"🇰🇷","Espanha":"🇪🇸","Suécia":"🇸🇪","Suíça":"🇨🇭","Tunísia":"🇹🇳",
-  "Turquia":"🇹🇷","Estados Unidos":"🇺🇸","Uruguai":"🇺🇾","Uzbequistão":"🇺🇿",
-};
-// Prefixo "🇧🇷 " (com espaço) ou vazio se a seleção não tiver bandeira.
-const flag = t => FLAGS[t] ? FLAGS[t] + ' ' : '';
+// Bandeiras por seleção: SVG 4x3 embutido como data-URI (fonte flag-icons).
+// SVG embutido => renderiza em qualquer sistema (inclusive Windows desktop) e
+// mantém o dashboard offline. Nomes em PT batem com TEAM_PT do coletor.
+const FLAGS = __FLAGS__;
+// <img> da bandeira (ou vazio se a seleção não tiver bandeira).
+const flag = t => FLAGS[t] ? `<img class="flag" src="${FLAGS[t]}" alt="">` : '';
 
 // Abre em TELA LIMPA: nada selecionado, todas as fases/métricas ativas.
 const state = {
