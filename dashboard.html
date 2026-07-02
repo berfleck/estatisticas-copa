@@ -188,6 +188,24 @@ const PHASES = DATA.phases;
 const TEAMS = [...new Set(GAMES.map(g => g.selecao))]
   .sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
+// Bandeiras (emoji Unicode) por seleção — funcionam offline, sem imagens.
+// Nomes em PT batem com TEAM_PT do coletor. Sem correspondência = sem bandeira.
+const FLAGS = {
+  "Argélia":"🇩🇿","Argentina":"🇦🇷","Austrália":"🇦🇺","Áustria":"🇦🇹",
+  "Bélgica":"🇧🇪","Bósnia e Herzegovina":"🇧🇦","Brasil":"🇧🇷","Cabo Verde":"🇨🇻",
+  "Canadá":"🇨🇦","Colômbia":"🇨🇴","Croácia":"🇭🇷","Curaçao":"🇨🇼","Tchéquia":"🇨🇿",
+  "Costa do Marfim":"🇨🇮","RD Congo":"🇨🇩","Equador":"🇪🇨","Egito":"🇪🇬",
+  "Inglaterra":"🏴󠁧󠁢󠁥󠁮󠁧󠁿","França":"🇫🇷","Alemanha":"🇩🇪","Gana":"🇬🇭","Haiti":"🇭🇹",
+  "Irã":"🇮🇷","Iraque":"🇮🇶","Japão":"🇯🇵","Jordânia":"🇯🇴","México":"🇲🇽",
+  "Marrocos":"🇲🇦","Países Baixos":"🇳🇱","Nova Zelândia":"🇳🇿","Noruega":"🇳🇴",
+  "Panamá":"🇵🇦","Paraguai":"🇵🇾","Portugal":"🇵🇹","Catar":"🇶🇦",
+  "Arábia Saudita":"🇸🇦","Escócia":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","Senegal":"🇸🇳","África do Sul":"🇿🇦",
+  "Coreia do Sul":"🇰🇷","Espanha":"🇪🇸","Suécia":"🇸🇪","Suíça":"🇨🇭","Tunísia":"🇹🇳",
+  "Turquia":"🇹🇷","Estados Unidos":"🇺🇸","Uruguai":"🇺🇾","Uzbequistão":"🇺🇿",
+};
+// Prefixo "🇧🇷 " (com espaço) ou vazio se a seleção não tiver bandeira.
+const flag = t => FLAGS[t] ? FLAGS[t] + ' ' : '';
+
 // Abre em TELA LIMPA: nada selecionado, todas as fases/métricas ativas.
 const state = {
   selected: new Set(),
@@ -375,7 +393,7 @@ function renderTeamList(){
       `<span class="caret ${open ? 'open' : ''}">▶</span>` +
       `<span class="dot" style="background:${teamColor(t)}"></span>` +
       `<input type="checkbox" ${allOn ? 'checked' : ''}>` +
-      `<span class="nm">${t}</span>` +
+      `<span class="nm">${flag(t)}${t}</span>` +
       `<span class="ct">${selCount}/${tg.length}</span>`;
     // clique no nome/caret expande; no checkbox seleciona
     head.querySelector('.nm').onclick = head.querySelector('.caret').onclick = () => {
@@ -396,7 +414,7 @@ function renderTeamList(){
         row.className = 'gopt';
         row.innerHTML =
           `<input type="checkbox" ${state.selected.has(g._id) ? 'checked' : ''}>` +
-          `<span>vs ${g.adversario}</span><span class="fs">${g.fase}</span>` +
+          `<span>vs ${flag(g.adversario)}${g.adversario}</span><span class="fs">${g.fase}</span>` +
           `<span class="pl">${g.placar}</span>`;
         row.querySelector('input').onchange = e => {
           e.target.checked ? state.selected.add(g._id) : state.selected.delete(g._id);
@@ -422,12 +440,12 @@ function renderTable(){
 
   const teamsShown = [...new Set(cols.map(c => c.team))];
   legend.innerHTML = teamsShown.map(t =>
-    `<span class="it"><span class="dot" style="background:${teamColor(t)}"></span>${t}</span>`).join('');
+    `<span class="it"><span class="dot" style="background:${teamColor(t)}"></span>${flag(t)}${t}</span>`).join('');
 
   let head = '<thead><tr><th class="stat">Estatística</th>';
   cols.forEach(c => {
     head += `<th class="col"><div class="colhead">` +
-      `<span class="nm"><span class="dot" style="background:${teamColor(c.team)}"></span>${c.title}</span>` +
+      `<span class="nm"><span class="dot" style="background:${teamColor(c.team)}"></span>${flag(c.team)}${c.title}</span>` +
       `<span class="pl">${c.sub}</span>` +
       (c.fase ? `<span class="fs">${c.fase}</span>` : '') +
       `<span class="bar-under" style="background:${teamColor(c.team)}"></span></div></th>`;
