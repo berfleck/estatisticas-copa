@@ -1,0 +1,12 @@
+# Ambiente virtual (6000+ arquivos — NUNCA versionar)
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Saidas do scraper que NAO sao servidas (regeneradas localmente)
+sofascore_stats.csv
+sofascore_resumo.csv
+
+# IMPORTANTE: dashboard.html NAO entra aqui de proposito.
+# Ele e versionado — e o arquivo que a Railway serve.

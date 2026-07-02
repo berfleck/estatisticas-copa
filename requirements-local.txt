@@ -1,0 +1,4 @@
+# Dependencias do SCRAPER (rodado apenas na sua maquina, nunca no servidor).
+# Instale no seu venv:  pip install -r requirements-local.txt
+curl_cffi>=0.7
+pandas>=2.0

@@ -1,0 +1,4 @@
+# Dependencias do SERVIDOR (Railway).
+# Intencionalmente vazio: serve.py usa apenas a biblioteca padrao do Python.
+# As dependencias do scraper (rodado so na sua maquina) estao em
+# requirements-local.txt e NAO sao instaladas no servidor.
