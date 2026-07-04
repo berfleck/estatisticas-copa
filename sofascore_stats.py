@@ -162,10 +162,15 @@ def _phase_label(name):
 
 def get_season_events(ut_id, season_id):
     """
-    Retorna TODOS os jogos FINALIZADOS (status 100) da temporada, varrendo
-    RODADA A RODADA (endpoint /events/round/...). Usamos as rodadas — e não o
-    feed /events/last — porque este último às vezes omite jogos (a Copa 2026
-    perdia England x Croatia da 1ª rodada). Cada evento é carimbado com a fase.
+    Retorna TODOS os jogos FINALIZADOS da temporada, varrendo RODADA A RODADA
+    (endpoint /events/round/...). Usamos as rodadas — e não o feed /events/last
+    — porque este último às vezes omite jogos (a Copa 2026 perdia England x
+    Croatia da 1ª rodada). Cada evento é carimbado com a fase.
+
+    "Finalizado" = status.type == "finished", o que cobre o fim no tempo normal
+    (code 100, "Ended"), na PRORROGAÇÃO (110, "AET") e nos PÊNALTIS (120, "AP").
+    Filtrar só por code == 100 perdia os jogos de mata-mata decididos no extra
+    (ex.: Netherlands 3-4 Morocco nos pênaltis ficava de fora).
     """
     meta = sofa_get(f"unique-tournament/{ut_id}/season/{season_id}/rounds")
     rounds = (meta or {}).get("rounds") or [{"round": 1}, {"round": 2}, {"round": 3}]
@@ -180,7 +185,7 @@ def get_season_events(ut_id, season_id):
         if not data:
             continue
         for ev in data.get("events", []):
-            if ev.get("status", {}).get("code") == 100:   # Ended
+            if ev.get("status", {}).get("type") == "finished":  # 100/110/120
                 ev["_fase"] = _phase_label(name)
                 events[ev["id"]] = ev                     # dedupe por id
     out = list(events.values())
