@@ -44,8 +44,10 @@ import os
 import time
 import sys
 from datetime import datetime
+from fractions import Fraction
 from urllib.parse import quote
 
+import numpy as np
 import pandas as pd
 from curl_cffi import requests as cfrequests
 
@@ -272,10 +274,16 @@ STAT_LABELS = {
     "Goal kicks": "Tiros de Meta",
 }
 
+# Métricas do "índice de desempenho vs odds" (derivadas — não vêm da API de
+# estatísticas). "P(Vitória %)" é coletada das odds de abertura; "xGD" e
+# "Índice" são calculados em compute_performance_index(). A ordem aqui é a de
+# exibição (índice primeiro). Ver INDEX_MEAN_COLS para a agregação no resumo.
+INDEX_LABELS = ["Índice", "P(Vitória %)", "xGD"]
+
 # Colunas (rótulos em PT) que entram no resumo agregado. Mantém o resumo
-# enxuto mesmo com o detalhado tendo tudo. Percentuais (rótulo com "(%)")
-# são agregados por MÉDIA; o resto por SOMA.
-SUMMARY_COLS = [
+# enxuto mesmo com o detalhado tendo tudo. Percentuais (rótulo com "(%)") e as
+# métricas do índice são agregados por MÉDIA; o resto por SOMA.
+SUMMARY_COLS = INDEX_LABELS + [
     "Posse de Bola (%)",
     "xG (Gols Esperados)",
     "Finalizações",
@@ -298,6 +306,9 @@ SUMMARY_COLS = [
 # Agrupamento das estatísticas (rótulos PT) por seção — usado no dashboard
 # para organizar/filtrar as métricas por categoria.
 STAT_GROUPS = {
+    "Desempenho vs Odds": [
+        "Índice", "P(Vitória %)", "xGD",
+    ],
     "Visão geral": [
         "Posse de Bola (%)", "xG (Gols Esperados)", "Finalizações",
         "Grandes Chances", "Defesas do Goleiro", "Escanteios", "Faltas",
@@ -416,6 +427,40 @@ def load_existing(path):
     return df, done
 
 
+def pregame_win_probs(eid):
+    """
+    Probabilidades de vitória PRÉ-JOGO (p_mandante, p_visitante) a partir das
+    odds de ABERTURA (initialFractionalValue) do mercado 1X2, já SEM a margem
+    da banca (normalizadas com o empate para somar 1). Retorna (None, None) se
+    o jogo não tiver odds 1X2.
+
+    Odd fracionária -> decimal: 3/4 vira 1.75. Prob implícita = 1/decimal; a
+    soma das três (1/X/2) passa de 1 por causa da margem, então dividimos pela
+    soma para remover a margem. Usamos a abertura porque reflete o mercado
+    ANTES do dinheiro de última hora — o "favoritismo pré-jogo" que queremos.
+    """
+    data = sofa_get(f"event/{eid}/odds/1/all")
+    if not data:
+        return None, None
+    ft = next((m for m in data.get("markets", [])
+               if m.get("marketName") == "Full time"
+               and m.get("marketGroup") == "1X2"), None)
+    if not ft:
+        return None, None
+    dec = {}
+    for c in ft.get("choices", []):
+        frac = c.get("initialFractionalValue") or c.get("fractionalValue")
+        try:
+            dec[c["name"]] = float(Fraction(frac)) + 1.0
+        except (TypeError, ValueError, ZeroDivisionError):
+            return None, None
+    if not {"1", "2"} <= set(dec):     # precisa ao menos de mandante/visitante
+        return None, None
+    inv = {k: 1.0 / v for k, v in dec.items()}
+    tot = sum(inv.values())
+    return inv["1"] / tot, inv["2"] / tot
+
+
 def _disp(score):
     """Placar de EXIBIÇÃO do lado (campo 'display' da API): resultado real da
     partida — inclui gols da prorrogação, mas NÃO a disputa de pênaltis.
@@ -467,18 +512,65 @@ def collect_tournament(ut_id, season_id, known_ids=frozenset()):
         hg, ag = _disp(hs), _disp(as_)               # resultado real (sem pênaltis)
         hp, ap = hs.get("penalties"), as_.get("penalties")
         fase = ev.get("_fase", "Grupos")
+        # Favoritismo pré-jogo (odds de abertura), por lado. Cacheado no CSV
+        # junto das estatísticas, então só puxamos para os jogos novos.
+        p_home, p_away = pregame_win_probs(eid)
 
         print(f"  [{i}/{len(pending)}] {home} {hg}-{ag} {away} ({fase})")
         stats_json = sofa_get(f"event/{eid}/statistics")
 
         # uma linha para cada lado da partida
-        for team, opp, gf, ga, pf, pa in ((home, away, hg, ag, hp, ap),
-                                          (away, home, ag, hg, ap, hp)):
+        for team, opp, gf, ga, pf, pa, pv in ((home, away, hg, ag, hp, ap, p_home),
+                                              (away, home, ag, hg, ap, hp, p_away)):
             row = {"selecao": team, "adversario": opp,
-                   "placar": _placar(gf, ga, pf, pa), "fase": fase, "event_id": eid}
+                   "placar": _placar(gf, ga, pf, pa), "fase": fase, "event_id": eid,
+                   "P(Vitória %)": round(pv * 100, 1) if pv is not None else None}
             row.update(parse_statistics(stats_json, home, away, team))
             rows.append(row)
     return rows
+
+
+def compute_performance_index(df):
+    """
+    Adiciona ao dataframe as colunas derivadas do índice de desempenho vs odds:
+
+      - "xGD"    : xG do time menos o xG do adversário no jogo (saldo de xG).
+      - "Índice" : quanto o time superou o xGD que as odds pré-jogo previam,
+                   numa escala ~0-100 (50 = exatamente o previsto pelo mercado;
+                   >50 rendeu acima do esperado; <50 abaixo).
+
+    Método: ajusta, sobre TODOS os jogos, o xGD esperado em função do
+    favoritismo pré-jogo (regressão linear xGD ~ P(vitória)); o índice é o
+    resíduo (real − esperado) padronizado. Assim um azarão que joga de igual
+    para igual pontua alto, e um favorito só sobe se superar a expectativa.
+    Recalculado a cada execução, então o modelo se refina conforme entram jogos.
+
+    Jogos sem xG ou sem odds ficam com Índice vazio (NaN) — não atrapalham o
+    ajuste (são excluídos) nem quebram o dashboard.
+    """
+    xg = "xG (Gols Esperados)"
+    if xg not in df.columns or "P(Vitória %)" not in df.columns:
+        return df                       # sem insumos, nada a calcular
+
+    # Cada jogo tem 2 linhas (os dois lados); o xG do adversário é
+    # (soma do xG do jogo) − (xG do próprio time). Se faltar o xG de algum
+    # lado (n_xg < 2), o saldo fica indefinido (NaN) para não inventar 0.
+    grp = df.groupby("event_id")[xg]
+    total_xg, n_xg = grp.transform("sum"), grp.transform("count")
+    df["xGD"] = (df[xg] - (total_xg - df[xg])).round(2)
+    df.loc[n_xg < 2, "xGD"] = np.nan
+
+    prob = pd.to_numeric(df["P(Vitória %)"], errors="coerce") / 100.0
+    ok = df["xGD"].notna() & prob.notna()
+    if ok.sum() >= 5:
+        b1, b0 = np.polyfit(prob[ok], df.loc[ok, "xGD"], 1)   # xGD_esp = b0 + b1*P
+        resid = df["xGD"] - (b0 + b1 * prob)
+        sd = resid[ok].std()
+        if sd and sd == sd:             # sd não-nulo e não-NaN
+            df["Índice"] = (50 + 15 * (resid / sd)).clip(0, 100).round(1)
+            print(f"  Índice: xGD_esperado = {b0:+.2f} {b1:+.2f}*P(vit) "
+                  f"(ajustado em {int(ok.sum())} team-jogos)")
+    return df
 
 
 def main():
@@ -519,11 +611,18 @@ def main():
     if new_df is None:
         print("  Nenhum jogo novo — reconstruindo as saídas com os dados em cache.")
 
-    # ordena colunas: identificação, depois métricas na ordem de STAT_LABELS.
-    # Estatísticas sem tradução (nome em inglês) vão para o fim, nada some.
+    # Índice de desempenho vs odds (derivado; usa xG + P(vitória) de TODOS os
+    # jogos, por isso é calculado aqui, com o dataframe completo já montado).
+    df = compute_performance_index(df)
+
+    # ordena colunas: identificação, o bloco do índice, depois as métricas da
+    # API na ordem de STAT_LABELS. Estatísticas sem tradução (nome em inglês)
+    # vão para o fim, nada some.
     id_cols = ["selecao", "adversario", "placar", "fase", "event_id"]
-    metric_order = [lbl for lbl in dict.fromkeys(STAT_LABELS.values())
-                    if lbl in df.columns]
+    index_cols = [c for c in INDEX_LABELS if c in df.columns]
+    api_order = [lbl for lbl in dict.fromkeys(STAT_LABELS.values())
+                 if lbl in df.columns and lbl not in index_cols]
+    metric_order = index_cols + api_order
     extras = [c for c in df.columns
               if c not in id_cols and c not in metric_order]
     df = df[id_cols + metric_order + extras]
@@ -538,9 +637,11 @@ def main():
     df_out.to_csv(STATS_CSV, index=False, encoding="utf-8-sig")
 
     # ---- CSV resumo: agregado por seleção (subconjunto curado) ----
-    # percentuais (rótulo com "(%)") viram MÉDIA; contagens viram SOMA.
+    # percentuais (rótulo com "(%)") e métricas do índice viram MÉDIA;
+    # contagens viram SOMA.
     summary_cols = [c for c in SUMMARY_COLS if c in df.columns]
-    agg_map = {c: ("mean" if "(%)" in c else "sum") for c in summary_cols}
+    mean_cols = {c for c in summary_cols if "(%)" in c or c in INDEX_LABELS}
+    agg_map = {c: ("mean" if c in mean_cols else "sum") for c in summary_cols}
     agg = (df.groupby("selecao")[summary_cols].agg(agg_map)
              .round(2).rename_axis(ID_LABELS["selecao"]))
     agg.to_csv(RESUMO_CSV, encoding="utf-8-sig")
