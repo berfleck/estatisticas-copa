@@ -274,11 +274,17 @@ STAT_LABELS = {
     "Goal kicks": "Tiros de Meta",
 }
 
-# Métricas do "índice de desempenho vs odds" (derivadas — não vêm da API de
-# estatísticas). "P(Vitória %)" é coletada das odds de abertura; "xGD" e
-# "Índice" são calculados em compute_performance_index(). A ordem aqui é a de
-# exibição (índice primeiro). Ver INDEX_MEAN_COLS para a agregação no resumo.
-INDEX_LABELS = ["Índice", "P(Vitória %)", "xGD"]
+# Métricas do IDO — Índice de Desempenho vs Odds (derivadas; não vêm da API de
+# estatísticas). "P(Vitória %)" é coletada das odds de abertura e CACHEADA no
+# CSV; "IDO" e "xGD" são recalculados em compute_performance_index() a cada
+# execução. A ordem aqui é a de exibição (índice primeiro). Percentuais e estas
+# métricas são agregados por MÉDIA no resumo (ver main()).
+INDEX_LABELS = ["IDO", "P(Vitória %)", "xGD"]
+
+# Colunas DERIVADAS que são recalculadas toda execução — descartadas ao carregar
+# o CSV para nunca ficarem defasadas (P(Vitória %) NÃO entra: é dado de cache).
+# "Índice" é o nome legado do IDO, mantido só para limpar CSVs antigos.
+COMPUTED_COLS = ["IDO", "xGD", "Índice"]
 
 # Colunas (rótulos em PT) que entram no resumo agregado. Mantém o resumo
 # enxuto mesmo com o detalhado tendo tudo. Percentuais (rótulo com "(%)") e as
@@ -307,7 +313,7 @@ SUMMARY_COLS = INDEX_LABELS + [
 # para organizar/filtrar as métricas por categoria.
 STAT_GROUPS = {
     "Desempenho vs Odds": [
-        "Índice", "P(Vitória %)", "xGD",
+        "IDO", "P(Vitória %)", "xGD",
     ],
     "Visão geral": [
         "Posse de Bola (%)", "xG (Gols Esperados)", "Finalizações",
@@ -416,6 +422,10 @@ def load_existing(path):
     if "event_id" not in df.columns or df.empty:
         return None, set()
     df["event_id"] = df["event_id"].astype(int)
+
+    # Colunas derivadas são recalculadas em main(); descarta versões antigas do
+    # CSV para não deixarem fantasmas (ex.: coluna "Índice" após virar "IDO").
+    df = df.drop(columns=[c for c in COMPUTED_COLS if c in df.columns])
 
     id_cols = ["selecao", "adversario", "placar", "fase", "event_id"]
     stat_cols = [c for c in df.columns if c not in id_cols]
@@ -532,20 +542,22 @@ def collect_tournament(ut_id, season_id, known_ids=frozenset()):
 
 def compute_performance_index(df):
     """
-    Adiciona ao dataframe as colunas derivadas do índice de desempenho vs odds:
+    Adiciona ao dataframe as colunas derivadas do IDO (Índice de Desempenho vs
+    Odds):
 
-      - "xGD"    : xG do time menos o xG do adversário no jogo (saldo de xG).
-      - "Índice" : quanto o time superou o xGD que as odds pré-jogo previam,
-                   numa escala ~0-100 (50 = exatamente o previsto pelo mercado;
-                   >50 rendeu acima do esperado; <50 abaixo).
+      - "xGD" : xG do time menos o xG do adversário no jogo (saldo de xG).
+      - "IDO" : quanto o time superou o xGD que as odds pré-jogo previam, numa
+                escala CENTRADA em zero (~ −100 a +100). 0 = exatamente o
+                previsto pelo mercado; positivo = rendeu acima do esperado;
+                negativo = abaixo.
 
     Método: ajusta, sobre TODOS os jogos, o xGD esperado em função do
-    favoritismo pré-jogo (regressão linear xGD ~ P(vitória)); o índice é o
-    resíduo (real − esperado) padronizado. Assim um azarão que joga de igual
-    para igual pontua alto, e um favorito só sobe se superar a expectativa.
-    Recalculado a cada execução, então o modelo se refina conforme entram jogos.
+    favoritismo pré-jogo (regressão linear xGD ~ P(vitória)); o IDO é o resíduo
+    (real − esperado) padronizado. Assim um azarão que joga de igual para igual
+    pontua alto, e um favorito só sobe se superar a expectativa. Recalculado a
+    cada execução, então o modelo se refina conforme entram jogos.
 
-    Jogos sem xG ou sem odds ficam com Índice vazio (NaN) — não atrapalham o
+    Jogos sem xG ou sem odds ficam com IDO vazio (NaN) — não atrapalham o
     ajuste (são excluídos) nem quebram o dashboard.
     """
     xg = "xG (Gols Esperados)"
@@ -567,8 +579,10 @@ def compute_performance_index(df):
         resid = df["xGD"] - (b0 + b1 * prob)
         sd = resid[ok].std()
         if sd and sd == sd:             # sd não-nulo e não-NaN
-            df["Índice"] = (50 + 15 * (resid / sd)).clip(0, 100).round(1)
-            print(f"  Índice: xGD_esperado = {b0:+.2f} {b1:+.2f}*P(vit) "
+            # Escala centrada: ~±30 por desvio-padrão de superação; ±100 mapeia
+            # o teto de ~3,3 desvios (extremos). 0 = jogou como as odds previam.
+            df["IDO"] = (30 * (resid / sd)).clip(-100, 100).round(1)
+            print(f"  IDO: xGD_esperado = {b0:+.2f} {b1:+.2f}*P(vit) "
                   f"(ajustado em {int(ok.sum())} team-jogos)")
     return df
 
@@ -611,7 +625,7 @@ def main():
     if new_df is None:
         print("  Nenhum jogo novo — reconstruindo as saídas com os dados em cache.")
 
-    # Índice de desempenho vs odds (derivado; usa xG + P(vitória) de TODOS os
+    # IDO — índice de desempenho vs odds (derivado; usa xG + P(vitória) de TODOS os
     # jogos, por isso é calculado aqui, com o dataframe completo já montado).
     df = compute_performance_index(df)
 
