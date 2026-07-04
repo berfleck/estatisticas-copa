@@ -270,8 +270,8 @@ const state = {
 const LATEST_PHASE = PHASES.length ? PHASES[PHASES.length - 1] : null;
 
 const isPct = l => l.includes('(%)');
-// Métricas que são nota/probabilidade: sempre média, nunca soma.
-const MEAN_ONLY = new Set(['IDO', 'P(Vitória %)']);
+// Métricas que são nota/rating/probabilidade: sempre média, nunca soma.
+const MEAN_ONLY = new Set(['IDO', 'IFE', 'P(Vitória %)']);
 const alwaysMean = l => isPct(l) || MEAN_ONLY.has(l);
 const round2 = x => Math.round(x * 100) / 100;
 const esc = s => String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;')
@@ -556,8 +556,10 @@ function renderTable(){
 
 function renderFoot(){
   document.getElementById('foot').textContent =
-    'Percentuais, IDO e P(Vitória %) são sempre média; contagens seguem Soma/Média. ' +
-    'Na visão por seleção, o IDO mostra a média ±desvio (consistência). As barras comparam valores dentro de cada linha; ' +
+    'Percentuais, IDO, IFE e P(Vitória %) são sempre média; contagens seguem Soma/Média. ' +
+    'Na visão por seleção, o IDO mostra a média ±desvio (consistência). ' +
+    'O IFE é um rating por seleção (o mesmo valor em todos os jogos dela): a diferença de IFE entre duas seleções ≈ xGD esperado de um confronto entre elas. ' +
+    'As barras comparam valores dentro de cada linha; ' +
     'em métricas com valor negativo (ex.: Gols Evitados) a barra é omitida. Cores são atribuídas às seleções em exibição.';
 }
 

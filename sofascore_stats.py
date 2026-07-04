@@ -274,17 +274,18 @@ STAT_LABELS = {
     "Goal kicks": "Tiros de Meta",
 }
 
-# Métricas do IDO — Índice de Desempenho vs Odds (derivadas; não vêm da API de
-# estatísticas). "P(Vitória %)" é coletada das odds de abertura e CACHEADA no
-# CSV; "IDO" e "xGD" são recalculados em compute_performance_index() a cada
-# execução. A ordem aqui é a de exibição (índice primeiro). Percentuais e estas
-# métricas são agregados por MÉDIA no resumo (ver main()).
-INDEX_LABELS = ["IDO", "P(Vitória %)", "xGD"]
+# Métricas dos índices (derivadas; não vêm da API de estatísticas).
+# "P(Vitória %)" é coletada das odds de abertura e CACHEADA no CSV; "IDO" e
+# "xGD" são recalculados em compute_performance_index() e "IFE" em
+# compute_strength_index() a cada execução. A ordem aqui é a de exibição
+# (índices primeiro). Percentuais e estas métricas são agregados por MÉDIA no
+# resumo (ver main()).
+INDEX_LABELS = ["IDO", "IFE", "P(Vitória %)", "xGD"]
 
 # Colunas DERIVADAS que são recalculadas toda execução — descartadas ao carregar
 # o CSV para nunca ficarem defasadas (P(Vitória %) NÃO entra: é dado de cache).
 # "Índice" é o nome legado do IDO, mantido só para limpar CSVs antigos.
-COMPUTED_COLS = ["IDO", "xGD", "Índice"]
+COMPUTED_COLS = ["IDO", "IFE", "xGD", "Índice"]
 
 # Colunas (rótulos em PT) que entram no resumo agregado. Mantém o resumo
 # enxuto mesmo com o detalhado tendo tudo. Percentuais (rótulo com "(%)") e as
@@ -312,8 +313,8 @@ SUMMARY_COLS = INDEX_LABELS + [
 # Agrupamento das estatísticas (rótulos PT) por seção — usado no dashboard
 # para organizar/filtrar as métricas por categoria.
 STAT_GROUPS = {
-    "Desempenho vs Odds": [
-        "IDO", "P(Vitória %)", "xGD",
+    "Índices & Odds": [
+        "IDO", "IFE", "P(Vitória %)", "xGD",
     ],
     "Visão geral": [
         "Posse de Bola (%)", "xG (Gols Esperados)", "Finalizações",
@@ -355,7 +356,16 @@ STAT_GROUPS = {
 STAT_DESCRIPTIONS = {
     "IDO": ("Índice de Desempenho vs Odds: quanto o time superou (positivo) ou "
             "ficou abaixo (negativo) do desempenho que as odds pré-jogo previam. "
-            "0 = rendeu exatamente como o mercado esperava."),
+            "0 = rendeu exatamente como o mercado esperava. Mede surpresa, não "
+            "força: para comparar o nível entre seleções, veja o IFE."),
+    "IFE": ("Índice de Força da Equipe: nível absoluto estimado da seleção numa "
+            "régua única (constante em todos os jogos dela). Combina o rating "
+            "implícito nas odds de todos os jogos — que corrige o calendário: "
+            "quem caiu em grupo forte não é punido — com o quanto ela vem "
+            "superando essas expectativas. Unidade: saldo de xG esperado por "
+            "jogo contra um adversário médio da Copa; a diferença de IFE entre "
+            "duas seleções estima o xGD de um confronto hipotético entre elas, "
+            "mesmo que nunca tenham se enfrentado."),
     "P(Vitória %)": ("Probabilidade de vitória pré-jogo, calculada das odds de "
                      "abertura (1X2, já sem a margem da banca). Baixo = era "
                      "azarão; alto = era favorito."),
@@ -581,6 +591,9 @@ def compute_performance_index(df):
 
     Jogos sem xG ou sem odds ficam com IDO vazio (NaN) — não atrapalham o
     ajuste (são excluídos) nem quebram o dashboard.
+
+    Ao final chama compute_strength_index(), que reaproveita a mesma reta de
+    expectativa e os resíduos para derivar o "IFE" (rating por seleção).
     """
     xg = "xG (Gols Esperados)"
     if xg not in df.columns or "P(Vitória %)" not in df.columns:
@@ -606,7 +619,95 @@ def compute_performance_index(df):
             df["IDO"] = (30 * (resid / sd)).clip(-100, 100).round(1)
             print(f"  IDO: xGD_esperado = {b0:+.2f} {b1:+.2f}*P(vit) "
                   f"(ajustado em {int(ok.sum())} team-jogos)")
+        # IFE reaproveita a mesma reta de expectativa e os mesmos resíduos.
+        df = compute_strength_index(df, b0 + b1 * prob, resid, ok)
     return df
+
+
+def compute_strength_index(df, xgd_esp, resid, ok):
+    """
+    Adiciona a coluna "IFE" (Índice de Força da Equipe): o nível ABSOLUTO
+    estimado de cada seleção numa régua única — constante em todas as linhas
+    da seleção, pois é um rating do time, não uma métrica do jogo.
+
+    Motivação: o IDO é um resíduo vs expectativa, então NÃO compara seleções
+    entre si (uma equipe fraca que surpreende pontua mais que uma forte que
+    apenas confirma o favoritismo). O IFE recoloca a régua que o IDO descarta
+    de propósito: as odds, que precificam todas as seleções na mesma escala
+    global.
+
+    IFE = rating de mercado + desempenho acima do mercado:
+
+      1. Rating de mercado — mínimos quadrados sobre o sistema em que, para
+         cada jogo, rating_sel − rating_adv ≈ xGD esperado pelo mercado (a
+         mesma reta do IDO). Diferente da média simples de P(vitória), isso
+         corrige o viés de calendário: quem caiu em grupo forte não é punido.
+      2. Ajuste observado — média dos resíduos (xGD real − esperado) da
+         seleção, encolhida por n/(n+4) para que 3-4 jogos de sorte/azar não
+         movam demais o rating.
+
+    Unidade: saldo de xG esperado por jogo contra um adversário médio da Copa.
+    Propriedade útil: IFE(A) − IFE(B) ≈ xGD esperado de um hipotético A x B,
+    mesmo que A e B nunca tenham se enfrentado.
+
+    Limitação conhecida: se o grafo de confrontos tiver "ilhas" (grupos ainda
+    sem cruzamento no mata-mata), o nível relativo ENTRE ilhas fica impreciso
+    — cada uma se ancora no próprio zero. É detectado e avisado no console e
+    se resolve sozinho conforme as fases eliminatórias entram na base.
+
+    `xgd_esp` e `resid` são Series alinhadas ao df (expectativa e resíduo por
+    team-jogo); `ok` marca as linhas com xGD e odds válidos.
+    """
+    sub = df.loc[ok]
+    teams = sorted(set(sub["selecao"]) | set(sub["adversario"]))
+    if len(teams) < 3:
+        return df
+    ti = {t: i for i, t in enumerate(teams)}
+
+    # Sistema sobredeterminado A·r = y: uma equação por team-jogo (cada jogo
+    # entra 2x, uma por lado, o que simetriza o sistema) + uma linha soma(r)=0
+    # que fixa a origem da escala no "adversário médio".
+    n = len(sub)
+    A = np.zeros((n + 1, len(teams)))
+    A[np.arange(n), sub["selecao"].map(ti).to_numpy()] = 1.0
+    A[np.arange(n), sub["adversario"].map(ti).to_numpy()] = -1.0
+    A[n] = 1.0
+    y = np.append(xgd_esp[ok].to_numpy(dtype=float), 0.0)
+    mkt = pd.Series(np.linalg.lstsq(A, y, rcond=None)[0], index=teams)
+
+    res_medio = resid[ok].groupby(sub["selecao"]).mean()
+    n_jogos = sub.groupby("selecao")["event_id"].nunique()
+    ajuste = (res_medio * n_jogos / (n_jogos + 4.0)).reindex(teams).fillna(0.0)
+
+    df["IFE"] = df["selecao"].map((mkt + ajuste).round(2))
+    print(f"  IFE: rating de mercado + desempenho observado "
+          f"({n} team-jogos, {len(teams)} seleções)")
+    _warn_isolated_groups(sub, teams)
+    return df
+
+
+def _warn_isolated_groups(sub, teams):
+    """Avisa se o grafo de confrontos tem componentes isolados do principal —
+    entre componentes diferentes a comparação de IFE é imprecisa."""
+    viz = {t: set() for t in teams}
+    for a, b in zip(sub["selecao"], sub["adversario"]):
+        viz[a].add(b)
+        viz[b].add(a)
+    falta, comps = set(teams), []
+    while falta:
+        fila = [next(iter(falta))]
+        comp = {fila[0]}
+        while fila:
+            for v in viz[fila.pop()]:
+                if v not in comp:
+                    comp.add(v)
+                    fila.append(v)
+        comps.append(comp)
+        falta -= comp
+    for comp in sorted(comps, key=len)[:-1]:      # todos menos o maior
+        print("  [aviso] IFE: seleções ainda sem confronto (nem indireto) com "
+              "o grupo principal — o nível delas vs as demais é impreciso: "
+              + ", ".join(sorted(comp)))
 
 
 def main():
