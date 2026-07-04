@@ -14,7 +14,16 @@ Requisitos:
     pip install curl_cffi pandas
 
 Uso:
-    python sofascore_stats.py
+    python sofascore_stats.py            # incremental: só puxa jogos novos
+    python sofascore_stats.py --full     # ignora o cache e re-puxa TUDO
+
+Coleta incremental:
+    As estatísticas de um jogo já finalizado não mudam mais. Por isso, ao rodar,
+    o script lê o 'sofascore_stats.csv' existente e PULA os jogos que já têm
+    estatísticas — chamando o endpoint de estatísticas (a parte cara/lenta) só
+    para os jogos novos. Jogos gravados sem estatísticas (ex.: stats ainda
+    indisponíveis numa rodada anterior) são re-tentados. Use --full para forçar
+    uma releitura completa (ex.: se a estrutura da API mudar).
 
 Saída:
     - Imprime as tabelas no terminal
@@ -31,6 +40,7 @@ Observações importantes:
       inspecione o JSON cru e ajuste os nomes.
 """
 
+import os
 import time
 import sys
 from datetime import datetime
@@ -60,6 +70,10 @@ _session = cfrequests.Session(impersonate="chrome", headers=HEADERS)
 UNIQUE_TOURNAMENT_ID = 16
 SEASON_YEAR = 2026
 SLEEP = 0.6                         # segundos entre chamadas (78+ jogos)
+
+# Arquivos de saída (o detalhado também serve de cache p/ coleta incremental).
+STATS_CSV = "sofascore_stats.csv"
+RESUMO_CSV = "sofascore_resumo.csv"
 
 # Traduz as fases do mata-mata (nome cru da API -> PT). Grupos vira "Grupos".
 PHASE_PT = {
@@ -361,20 +375,69 @@ def _clean(v):
 # ---------------------------------------------------------------------------
 # Orquestração
 # ---------------------------------------------------------------------------
-def collect_tournament(ut_id, season_id):
+def load_existing(path):
     """
-    Percorre TODOS os jogos finalizados da temporada e devolve uma linha por
+    Carrega o CSV detalhado já existente (se houver) e devolve
+    (dataframe_interno, ids_ja_coletados).
+
+    `ids_ja_coletados` são os jogos que JÁ têm estatísticas — a coleta pula
+    esses (o placar/estatísticas de um jogo finalizado não muda mais). Jogos
+    gravados SEM estatísticas ficam de fora do conjunto e são puxados de novo.
+    O dataframe volta com as colunas de identificação nos nomes internos
+    (selecao, adversario, ...), pronto para juntar com as linhas novas.
+    """
+    if not os.path.exists(path):
+        return None, set()
+    try:
+        df = pd.read_csv(path, encoding="utf-8-sig")
+    except Exception as e:                       # CSV corrompido/incompatível
+        print(f"  [aviso] não consegui ler {path} ({e}); refazendo do zero.")
+        return None, set()
+
+    # Desfaz o rename de exibição (Seleção -> selecao etc.) p/ bater com as
+    # linhas coletadas. Rótulos das estatísticas já estão em PT nos dois lados.
+    df = df.rename(columns={v: k for k, v in ID_LABELS.items()})
+    if "event_id" not in df.columns or df.empty:
+        return None, set()
+    df["event_id"] = df["event_id"].astype(int)
+
+    id_cols = ["selecao", "adversario", "placar", "fase", "event_id"]
+    stat_cols = [c for c in df.columns if c not in id_cols]
+    if stat_cols:
+        has_stats = df[stat_cols].notna().any(axis=1)
+        done = set(df.loc[has_stats, "event_id"])
+    else:
+        done = set()
+    return df, done
+
+
+def collect_tournament(ut_id, season_id, known_ids=frozenset()):
+    """
+    Percorre os jogos finalizados da temporada e devolve uma linha por
     (jogo x time) — cada partida gera 2 linhas (mandante e visitante), com uma
     única chamada ao endpoint de estatísticas.
+
+    `known_ids`: ids de jogos que já têm estatísticas coletadas. Esses são
+    pulados (não geram chamada ao endpoint de estatísticas), então só os jogos
+    novos são efetivamente puxados.
     """
     events = get_season_events(ut_id, season_id)
     if not events:
         print("  [erro] nenhum jogo finalizado encontrado no torneio")
         return []
-    print(f"  {len(events)} jogos finalizados. Puxando estatísticas...")
+
+    pending = [ev for ev in events if ev["id"] not in known_ids]
+    cached = len(events) - len(pending)
+    if cached:
+        print(f"  {len(events)} jogos finalizados — {cached} já em cache, "
+              f"{len(pending)} novo(s) para puxar.")
+    else:
+        print(f"  {len(events)} jogos finalizados. Puxando estatísticas...")
+    if not pending:
+        return []
 
     rows = []
-    for i, ev in enumerate(events, 1):
+    for i, ev in enumerate(pending, 1):
         eid = ev["id"]
         home = pt_team(ev["homeTeam"]["name"])
         away = pt_team(ev["awayTeam"]["name"])
@@ -382,7 +445,7 @@ def collect_tournament(ut_id, season_id):
         ag = ev.get("awayScore", {}).get("current")
         fase = ev.get("_fase", "Grupos")
 
-        print(f"  [{i}/{len(events)}] {home} {hg}-{ag} {away} ({fase})")
+        print(f"  [{i}/{len(pending)}] {home} {hg}-{ag} {away} ({fase})")
         stats_json = sofa_get(f"event/{eid}/statistics")
 
         # uma linha para cada lado da partida
@@ -395,6 +458,8 @@ def collect_tournament(ut_id, season_id):
 
 
 def main():
+    full_refresh = "--full" in sys.argv[1:] or "--force" in sys.argv[1:]
+
     season_id = resolve_season_id(UNIQUE_TOURNAMENT_ID, SEASON_YEAR)
     if not season_id:
         print(f"[erro] não achei a temporada {SEASON_YEAR} do torneio "
@@ -403,12 +468,32 @@ def main():
     print(f"== Copa {SEASON_YEAR} (torneio {UNIQUE_TOURNAMENT_ID}, "
           f"temporada {season_id}) ==")
 
-    all_rows = collect_tournament(UNIQUE_TOURNAMENT_ID, season_id)
-    if not all_rows:
+    # Coleta incremental: carrega o que já temos e puxa só os jogos novos.
+    if full_refresh:
+        print("  (--full) ignorando cache: puxando TODOS os jogos.")
+        existing_df, known_ids = None, set()
+    else:
+        existing_df, known_ids = load_existing(STATS_CSV)
+
+    new_rows = collect_tournament(UNIQUE_TOURNAMENT_ID, season_id, known_ids)
+    new_df = pd.DataFrame(new_rows) if new_rows else None
+
+    # Junta linhas novas com as já existentes. Jogos re-puxados (ex.: antes sem
+    # estatísticas) substituem a versão antiga para não duplicar.
+    if new_df is not None and existing_df is not None:
+        refreshed = set(new_df["event_id"])
+        existing_df = existing_df[~existing_df["event_id"].isin(refreshed)]
+        df = pd.concat([existing_df, new_df], ignore_index=True)
+    elif new_df is not None:
+        df = new_df
+    else:
+        df = existing_df
+
+    if df is None or df.empty:
         print("\nNada coletado. Verifique conexão / fingerprint / IDs.")
         sys.exit(1)
-
-    df = pd.DataFrame(all_rows)
+    if new_df is None:
+        print("  Nenhum jogo novo — reconstruindo as saídas com os dados em cache.")
 
     # ordena colunas: identificação, depois métricas na ordem de STAT_LABELS.
     # Estatísticas sem tradução (nome em inglês) vão para o fim, nada some.
@@ -426,7 +511,7 @@ def main():
     n_games = df["event_id"].nunique()
     print(f"\n===== COLETADO: {n_games} jogos, {n_teams} seleções, "
           f"{len(df)} linhas, {n_stats} estatísticas =====")
-    df_out.to_csv("sofascore_stats.csv", index=False, encoding="utf-8-sig")
+    df_out.to_csv(STATS_CSV, index=False, encoding="utf-8-sig")
 
     # ---- CSV resumo: agregado por seleção (subconjunto curado) ----
     # percentuais (rótulo com "(%)") viram MÉDIA; contagens viram SOMA.
@@ -434,7 +519,7 @@ def main():
     agg_map = {c: ("mean" if "(%)" in c else "sum") for c in summary_cols}
     agg = (df.groupby("selecao")[summary_cols].agg(agg_map)
              .round(2).rename_axis(ID_LABELS["selecao"]))
-    agg.to_csv("sofascore_resumo.csv", encoding="utf-8-sig")
+    agg.to_csv(RESUMO_CSV, encoding="utf-8-sig")
 
     # ---- Dashboard HTML interativo (offline) ----
     all_metrics = metric_order + extras
