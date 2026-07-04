@@ -293,7 +293,8 @@ INDEX_LABELS = ["IDO", "IFE", "P(Vitória %)", "xGD"]
 # o CSV para nunca ficarem defasadas (P(Vitória %) NÃO entra: é dado de cache).
 # "Índice" é o nome legado do IDO, mantido só para limpar CSVs antigos.
 COMPUTED_COLS = ["IDO", "IFE", "xGD", "xG Concedido",
-                 "Grandes Chances Concedidas", "Índice"]
+                 "Grandes Chances Concedidas",
+                 "Gols", "Gols Sofridos", "Gols − xG", "Índice"]
 
 # Encolhimento do ajuste de desempenho do IFE: com n jogos considerados, o
 # resíduo médio entra com peso n/(n+IFE_SHRINK) — assim poucos jogos de
@@ -330,6 +331,10 @@ STAT_GROUPS = {
     "Índices & Odds": [
         "IDO", "IFE", "P(Vitória %)", "xGD",
     ],
+    "Eficiência": [
+        "Gols", "Gols Sofridos", "Gols − xG",
+        "Grandes Chances Convertidas", "Grandes Chances Perdidas",
+    ],
     "Visão geral": [
         "Posse de Bola (%)", "xG (Gols Esperados)", "Finalizações",
         "Grandes Chances", "Defesas do Goleiro", "Escanteios", "Faltas",
@@ -341,7 +346,6 @@ STAT_GROUPS = {
         "Bolas na Trave", "Chutes Dentro da Área", "Chutes Fora da Área",
     ],
     "Ataque": [
-        "Grandes Chances Convertidas", "Grandes Chances Perdidas",
         "Toques na Área", "Passes em Profundidade",
         "Faltas Sofridas no Último Terço", "Impedimentos",
     ],
@@ -378,22 +382,20 @@ DIMENSOES = {
         ("Chutes no Alvo", .20), ("Finalizações", .15),
     ],
     "Finalização": [
-        ("@xg_por_fin", .50), ("@sot_pct", .25),
-        ("Grandes Chances Convertidas", .25),
+        ("Gols − xG", .40), ("@xg_por_fin", .30),
+        ("Grandes Chances Convertidas", .30),
     ],
     "Construção": [
-        ("Passes Certos", .45), ("Posse de Bola (%)", .35), ("Passes", .20),
+        ("Posse de Bola (%)", .35), ("Passes Certos", .30),
+        ("Entradas no Último Terço", .35),
     ],
-    "Pressão": [
-        ("Toques na Área", .30), ("Chutes Dentro da Área", .20),
-        ("Entradas no Último Terço", .20), ("Ações no Último Terço", .15),
-        ("Faltas Sofridas no Último Terço", .15),
+    "Território": [
+        ("Toques na Área", .40), ("Ações no Último Terço", .30),
+        ("Faltas Sofridas no Último Terço", .30),
     ],
     "Defesa": [
-        ("xG Concedido", .30, True), ("Grandes Chances Concedidas", .20, True),
-        ("Gols Evitados", .12), ("Defesas Difíceis", .08), ("Desarmes", .10),
-        ("Interceptações", .10), ("Recuperações de Bola", .06),
-        ("Duelos Ganhos (%)", .04),
+        ("xG Concedido", .45, True), ("Grandes Chances Concedidas", .30, True),
+        ("Gols Evitados", .15), ("Duelos Ganhos (%)", .10),
     ],
 }
 
@@ -401,8 +403,6 @@ DIMENSOES = {
 # calcula os mesmos valores por jogo com estas chaves.
 _DERIVADAS = {
     "@xg_por_fin": lambda d: d["xG (Gols Esperados)"]
-    / d["Finalizações"].where(d["Finalizações"] > 0),
-    "@sot_pct": lambda d: d["Chutes no Alvo"]
     / d["Finalizações"].where(d["Finalizações"] > 0),
 }
 
@@ -462,6 +462,14 @@ STAT_DESCRIPTIONS = {
                      "azarão; alto = era favorito."),
     "xGD": ("Saldo de gols esperados no jogo: xG a favor menos xG contra. "
             "Positivo = criou chances melhores que as do adversário."),
+    "Gols": ("Gols marcados no jogo (tempo normal e prorrogação; disputa de "
+             "pênaltis não conta)."),
+    "Gols Sofridos": ("Gols sofridos no jogo (tempo normal e prorrogação; "
+                      "disputa de pênaltis não conta)."),
+    "Gols − xG": ("Conversão: gols marcados menos gols esperados (xG). Muito "
+                  "positivo = o time marcou acima da qualidade das chances — "
+                  "placares recentes inflados, tende a regredir à média; "
+                  "negativo = desperdiçou chances e tende a melhorar."),
     "xG (Gols Esperados)": ("Gols esperados: soma da probabilidade de gol de cada "
                             "finalização. Mede a qualidade das chances criadas, "
                             "não o placar."),
@@ -715,6 +723,14 @@ def compute_performance_index(df):
         grp_bc = df.groupby("event_id")[bc]
         df["Grandes Chances Concedidas"] = grp_bc.transform("sum") - df[bc]
         df.loc[grp_bc.transform("count") < 2, "Grandes Chances Concedidas"] = np.nan
+
+    # Gols do placar (tempo normal + prorrogação; a disputa de pênaltis fica
+    # de fora — mesmo critério do placar exibido). "Gols − xG" é a conversão:
+    # quanto o time marcou acima/abaixo da qualidade das chances que criou.
+    gols = df["placar"].astype(str).str.extract(r"^(-?\d+)-(-?\d+)")
+    df["Gols"] = pd.to_numeric(gols[0], errors="coerce")
+    df["Gols Sofridos"] = pd.to_numeric(gols[1], errors="coerce")
+    df["Gols − xG"] = (df["Gols"] - df[xg]).round(2)
 
     prob = pd.to_numeric(df["P(Vitória %)"], errors="coerce") / 100.0
     ok = df["xGD"].notna() & prob.notna()
