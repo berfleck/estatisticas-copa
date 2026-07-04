@@ -416,6 +416,23 @@ def load_existing(path):
     return df, done
 
 
+def _disp(score):
+    """Placar de EXIBIÇÃO do lado (campo 'display' da API): resultado real da
+    partida — inclui gols da prorrogação, mas NÃO a disputa de pênaltis.
+    Cai para 'current' só se 'display' faltar. Nunca use 'current' direto: em
+    jogos de pênaltis ele soma a disputa (ex.: 1-1 vira 3-4)."""
+    v = score.get("display")
+    return v if v is not None else score.get("current")
+
+
+def _placar(gf, ga, pf, pa):
+    """'gf-ga', anexando '(pên pf-pa)' quando houve disputa de pênaltis."""
+    s = f"{gf}-{ga}"
+    if pf is not None and pa is not None:
+        s += f" (pên {pf}-{pa})"
+    return s
+
+
 def collect_tournament(ut_id, season_id, known_ids=frozenset()):
     """
     Percorre os jogos finalizados da temporada e devolve uma linha por
@@ -446,17 +463,19 @@ def collect_tournament(ut_id, season_id, known_ids=frozenset()):
         eid = ev["id"]
         home = pt_team(ev["homeTeam"]["name"])
         away = pt_team(ev["awayTeam"]["name"])
-        hg = ev.get("homeScore", {}).get("current")
-        ag = ev.get("awayScore", {}).get("current")
+        hs, as_ = ev.get("homeScore", {}), ev.get("awayScore", {})
+        hg, ag = _disp(hs), _disp(as_)               # resultado real (sem pênaltis)
+        hp, ap = hs.get("penalties"), as_.get("penalties")
         fase = ev.get("_fase", "Grupos")
 
         print(f"  [{i}/{len(pending)}] {home} {hg}-{ag} {away} ({fase})")
         stats_json = sofa_get(f"event/{eid}/statistics")
 
         # uma linha para cada lado da partida
-        for team, opp, gf, ga in ((home, away, hg, ag), (away, home, ag, hg)):
+        for team, opp, gf, ga, pf, pa in ((home, away, hg, ag, hp, ap),
+                                          (away, home, ag, hg, ap, hp)):
             row = {"selecao": team, "adversario": opp,
-                   "placar": f"{gf}-{ga}", "fase": fase, "event_id": eid}
+                   "placar": _placar(gf, ga, pf, pa), "fase": fase, "event_id": eid}
             row.update(parse_statistics(stats_json, home, away, team))
             rows.append(row)
     return rows
