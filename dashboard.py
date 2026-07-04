@@ -522,8 +522,8 @@ function renderCompare(){
       return '<button class="gchip '+(ex?'off':'')+'" '+(ex?'':'style="background:'+col+'14;border:1px solid '+col+'44"')+' data-act="toggleGame:'+esc(t)+'|'+g.event_id+'" title="'+(ex?'incluir':'excluir')+' · vs '+esc(g.adversario)+' ('+g.fase+')">'+fimg(g.adversario,'')+pl+'</button>';
     }).join('');
     return '<div class="ccard" style="--c:'+col+'"><div class="ch">'+fimg(t,'flag')+'<span class="cn">'+t+'</span><button class="xbtn" data-act="removeCompare:'+esc(t)+'">×</button></div>'+
-      '<div class="cstats"><div><div class="l">IFE</div><div class="v" style="color:'+signColor(ife)+'">'+signed(ife,2)+'</div></div>'+
-      '<div><div class="l">IDO médio</div><div class="v" style="color:'+signColor(ido)+'">'+signed(ido,0)+'</div></div></div>'+
+      '<div class="cstats"><div><div class="l">IFE'+qm(tip('IFE'))+'</div><div class="v" style="color:'+signColor(ife)+'">'+signed(ife,2)+'</div></div>'+
+      '<div><div class="l">IDO médio'+qm(tip('IDO'))+'</div><div class="v" style="color:'+signColor(ido)+'">'+signed(ido,0)+'</div></div></div>'+
       '<div class="cgames"><div class="l">Jogos considerados · '+teamGames(t).length+'/'+pg.length+'</div><div class="chipset">'+chips+'</div></div></div>';
   }).join('');
 
