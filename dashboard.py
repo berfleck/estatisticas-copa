@@ -23,20 +23,26 @@ from flags import TEAM_FLAGS
 
 
 def build_dashboard(games, groups, out_path="dashboard.html",
-                    phases=None, generated_at="", descriptions=None):
+                    phases=None, generated_at="", descriptions=None,
+                    ife_mkt=None, ife_shrink=4.0):
     """
     games : lista de dicts {selecao, adversario, placar, fase, event_id,
-                            values:{rótulo: valor}}
+                            ifeRes, values:{rótulo: valor}}
     groups: lista de dicts {name, stats:[rótulo, ...]}
     phases: lista ordenada de fases presentes (para os chips).
     descriptions: dict {rótulo: texto} — tooltip exibido ao passar o mouse
                   sobre o nome da métrica (só as que precisam de explicação).
+    ife_mkt: dict {seleção: rating de mercado} — com o ifeRes de cada jogo,
+             permite recalcular o IFE no navegador considerando só os jogos
+             selecionados: mercado + média(resíduos) × n/(n+ife_shrink).
     """
     payload = {
         "games": games,
         "groups": groups,
         "phases": phases or [],
         "descriptions": descriptions or {},
+        "ifeMkt": ife_mkt or {},
+        "ifeShrink": ife_shrink,
         "generatedAt": generated_at,
     }
     data_json = json.dumps(payload, ensure_ascii=False)
@@ -272,6 +278,21 @@ const LATEST_PHASE = PHASES.length ? PHASES[PHASES.length - 1] : null;
 const isPct = l => l.includes('(%)');
 // Métricas que são nota/rating/probabilidade: sempre média, nunca soma.
 const MEAN_ONLY = new Set(['IDO', 'IFE', 'P(Vitória %)']);
+
+// IFE dinâmico: rating de mercado da seleção (global, fixo — a régua) + média
+// dos resíduos dos jogos considerados, encolhida por n/(n+K) (a evidência).
+// Com todos os jogos da seleção, reproduz o IFE dos CSVs; sem nenhum resíduo
+// válido, sobra a visão pura do mercado.
+const IFE_MKT = DATA.ifeMkt || {};
+const IFE_K = DATA.ifeShrink || 4;
+function ifeOf(team, games){
+  const mkt = IFE_MKT[team];
+  if (mkt === null || mkt === undefined) return null;
+  const res = games.map(g => g.ifeRes).filter(v => v !== null && v !== undefined);
+  if (!res.length) return round2(mkt);
+  const m = res.reduce((a, b) => a + b, 0) / res.length;
+  return round2(mkt + m * res.length / (res.length + IFE_K));
+}
 const alwaysMean = l => isPct(l) || MEAN_ONLY.has(l);
 const round2 = x => Math.round(x * 100) / 100;
 const esc = s => String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;')
@@ -336,14 +357,16 @@ function columns(){
       order.indexOf(a.selecao) - order.indexOf(b.selecao) || a._id - b._id);
     return sorted.map(g => ({
       team: g.selecao, title: 'vs ' + g.adversario, sub: g.placar, fase: g.fase,
-      value: label => g.values[label],
+      // IFE é dinâmico: aqui, a força considerando só ESTE jogo como evidência
+      value: label => label === 'IFE' ? ifeOf(g.selecao, [g]) : g.values[label],
     }));
   }
   return activeTeams().map(t => {
     const tg = games.filter(g => g.selecao === t);
     return {
       team: t, title: t, sub: tg.length + (tg.length === 1 ? ' jogo' : ' jogos'), fase: '',
-      value: label => aggregate(tg, label),
+      // IFE é dinâmico: mercado global + rendimento dos jogos selecionados
+      value: label => label === 'IFE' ? ifeOf(t, tg) : aggregate(tg, label),
       stdOf: label => stddev(tg, label),
     };
   });
@@ -558,7 +581,8 @@ function renderFoot(){
   document.getElementById('foot').textContent =
     'Percentuais, IDO, IFE e P(Vitória %) são sempre média; contagens seguem Soma/Média. ' +
     'Na visão por seleção, o IDO mostra a média ±desvio (consistência). ' +
-    'O IFE é um rating por seleção (o mesmo valor em todos os jogos dela): a diferença de IFE entre duas seleções ≈ xGD esperado de um confronto entre elas. ' +
+    'IDO = desempenho vs expectativa das odds em cada jogo; IFE = força da seleção, partindo do mercado (todos os jogos) e incorporando o rendimento dos jogos selecionados — ' +
+    'a diferença de IFE entre duas seleções ≈ xGD esperado de um confronto entre elas. ' +
     'As barras comparam valores dentro de cada linha; ' +
     'em métricas com valor negativo (ex.: Gols Evitados) a barra é omitida. Cores são atribuídas às seleções em exibição.';
 }

@@ -287,6 +287,12 @@ INDEX_LABELS = ["IDO", "IFE", "P(Vitória %)", "xGD"]
 # "Índice" é o nome legado do IDO, mantido só para limpar CSVs antigos.
 COMPUTED_COLS = ["IDO", "IFE", "xGD", "Índice"]
 
+# Encolhimento do ajuste de desempenho do IFE: com n jogos considerados, o
+# resíduo médio entra com peso n/(n+IFE_SHRINK) — assim poucos jogos de
+# sorte/azar não movem demais o rating. Usado no cálculo estático (CSVs) e no
+# dinâmico do dashboard (jogos selecionados), que precisam bater.
+IFE_SHRINK = 4.0
+
 # Colunas (rótulos em PT) que entram no resumo agregado. Mantém o resumo
 # enxuto mesmo com o detalhado tendo tudo. Percentuais (rótulo com "(%)") e as
 # métricas do índice são agregados por MÉDIA; o resto por SOMA.
@@ -358,11 +364,12 @@ STAT_DESCRIPTIONS = {
             "ficou abaixo (negativo) do desempenho que as odds pré-jogo previam. "
             "0 = rendeu exatamente como o mercado esperava. Mede surpresa, não "
             "força: para comparar o nível entre seleções, veja o IFE."),
-    "IFE": ("Índice de Força da Equipe: nível absoluto estimado da seleção numa "
-            "régua única (constante em todos os jogos dela). Combina o rating "
-            "implícito nas odds de todos os jogos — que corrige o calendário: "
-            "quem caiu em grupo forte não é punido — com o quanto ela vem "
-            "superando essas expectativas. Unidade: saldo de xG esperado por "
+    "IFE": ("Índice de Força da Equipe: força estimada da seleção numa régua "
+            "única. Parte do rating implícito nas odds de TODOS os jogos da "
+            "Copa (corrige o calendário: quem caiu em grupo forte não é "
+            "punido) e incorpora o rendimento dos jogos selecionados — filtre "
+            "fases ou jogos para ver a força naquele recorte; quanto mais "
+            "jogos, mais o rendimento pesa. Unidade: saldo de xG esperado por "
             "jogo contra um adversário médio da Copa; a diferença de IFE entre "
             "duas seleções estima o xGD de um confronto hipotético entre elas, "
             "mesmo que nunca tenham se enfrentado."),
@@ -650,6 +657,13 @@ def compute_strength_index(df, xgd_esp, resid, ok):
     Propriedade útil: IFE(A) − IFE(B) ≈ xGD esperado de um hipotético A x B,
     mesmo que A e B nunca tenham se enfrentado.
 
+    A coluna "IFE" gravada nos CSVs é a versão ESTÁTICA (todos os jogos). No
+    dashboard o IFE é DINÂMICO: a régua (rating de mercado, parte 1) é sempre
+    global — recalculá-la com um subconjunto estilhaçaria o grafo de
+    confrontos —, mas o ajuste (parte 2) usa só os resíduos dos jogos
+    selecionados. Com tudo selecionado, os dois batem. As colunas internas
+    "_ife_mkt"/"_ife_res" alimentam essa versão dinâmica.
+
     Limitação conhecida: se o grafo de confrontos tiver "ilhas" (grupos ainda
     sem cruzamento no mata-mata), o nível relativo ENTRE ilhas fica impreciso
     — cada uma se ancora no próprio zero. É detectado e avisado no console e
@@ -677,9 +691,18 @@ def compute_strength_index(df, xgd_esp, resid, ok):
 
     res_medio = resid[ok].groupby(sub["selecao"]).mean()
     n_jogos = sub.groupby("selecao")["event_id"].nunique()
-    ajuste = (res_medio * n_jogos / (n_jogos + 4.0)).reindex(teams).fillna(0.0)
+    ajuste = (res_medio * n_jogos / (n_jogos + IFE_SHRINK)).reindex(teams).fillna(0.0)
 
     df["IFE"] = df["selecao"].map((mkt + ajuste).round(2))
+
+    # Insumos do IFE DINÂMICO do dashboard: rating de mercado por seleção e
+    # resíduo por team-jogo. São colunas internas — main() as extrai para o
+    # payload e as remove antes de gravar os CSVs. Com elas o navegador
+    # recompõe o IFE só com os jogos selecionados (mercado global + média dos
+    # resíduos visíveis encolhida), sem resolver sistema nenhum no cliente.
+    df["_ife_mkt"] = df["selecao"].map(mkt.round(4))
+    df["_ife_res"] = resid.where(ok).round(4)
+
     print(f"  IFE: rating de mercado + desempenho observado "
           f"({n} team-jogos, {len(teams)} seleções)")
     _warn_isolated_groups(sub, teams)
@@ -752,6 +775,15 @@ def main():
     # jogos, por isso é calculado aqui, com o dataframe completo já montado).
     df = compute_performance_index(df)
 
+    # Insumos do IFE dinâmico do dashboard (rating de mercado por seleção e
+    # resíduo por linha). Saem do df aqui para NÃO vazarem para os CSVs.
+    ife_mkt, ife_res = {}, None
+    if "_ife_mkt" in df.columns:
+        ife_mkt = {t: _json_num(v) for t, v in
+                   df.groupby("selecao")["_ife_mkt"].first().items()}
+        ife_res = df["_ife_res"]
+        df = df.drop(columns=["_ife_mkt", "_ife_res"])
+
     # ordena colunas: identificação, o bloco do índice, depois as métricas da
     # API na ordem de STAT_LABELS. Estatísticas sem tradução (nome em inglês)
     # vão para o fim, nada some.
@@ -803,18 +835,21 @@ def main():
         groups.append({"name": "Outras", "stats": outras})
 
     games = []
-    for _, r in df.iterrows():
+    for idx, r in df.iterrows():
         games.append({
             "selecao": r["selecao"],
             "adversario": r["adversario"],
             "placar": r["placar"],
             "fase": r["fase"],
             "event_id": int(r["event_id"]),
+            # resíduo do jogo (real − esperado pelas odds) p/ o IFE dinâmico
+            "ifeRes": _json_num(ife_res.loc[idx]) if ife_res is not None else None,
             "values": {m: _json_num(r[m]) for m in all_metrics},
         })
     phases = [p for p in PHASE_ORDER if p in set(df["fase"])]
     build_dashboard(games, groups, "dashboard.html",
                     phases=phases, descriptions=STAT_DESCRIPTIONS,
+                    ife_mkt=ife_mkt, ife_shrink=IFE_SHRINK,
                     generated_at=datetime.now().strftime("%d/%m/%Y %H:%M"))
 
     print("\nArquivos salvos: sofascore_stats.csv, sofascore_resumo.csv "
