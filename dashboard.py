@@ -19,6 +19,8 @@ Uso (chamado automaticamente por sofascore_stats.py):
 
 import json
 
+from flags import TEAM_FLAGS
+
 
 def build_dashboard(games, groups, out_path="dashboard.html",
                     phases=None, generated_at=""):
@@ -35,7 +37,8 @@ def build_dashboard(games, groups, out_path="dashboard.html",
         "generatedAt": generated_at,
     }
     data_json = json.dumps(payload, ensure_ascii=False)
-    html = _TEMPLATE.replace("__DATA__", data_json)
+    flags_json = json.dumps(TEAM_FLAGS, ensure_ascii=False)
+    html = _TEMPLATE.replace("__DATA__", data_json).replace("__FLAGS__", flags_json)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(html)
     return out_path
@@ -135,6 +138,9 @@ _TEMPLATE = r"""<!doctype html>
   .caret{color:var(--muted); font-size:10px; width:10px; transition:transform .12s}
   .caret.open{transform:rotate(90deg)}
   .dot{width:10px; height:10px; border-radius:3px; flex:0 0 auto}
+  .flag{width:18px; height:13px; border-radius:2px; object-fit:cover;
+    vertical-align:-2px; margin-right:6px; flex:0 0 auto;
+    box-shadow:0 0 0 .5px rgba(11,11,11,.18)}
   .games{padding:2px 0 8px 26px}
   .gopt{display:flex; align-items:center; gap:8px; padding:3px 0; font-size:13px;
     color:var(--ink2); cursor:pointer}
@@ -230,6 +236,13 @@ const PHASES = DATA.phases;
 // seleções em ordem alfabética (pt-BR, respeitando acentos)
 const TEAMS = [...new Set(GAMES.map(g => g.selecao))]
   .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+// Bandeiras por seleção: SVG 4x3 embutido como data-URI (fonte flag-icons).
+// SVG embutido => renderiza em qualquer sistema (inclusive Windows desktop) e
+// mantém o dashboard offline. Nomes em PT batem com TEAM_PT do coletor.
+const FLAGS = __FLAGS__;
+// <img> da bandeira (ou vazio se a seleção não tiver bandeira).
+const flag = t => FLAGS[t] ? `<img class="flag" src="${FLAGS[t]}" alt="">` : '';
 
 // Abre em TELA LIMPA: nada selecionado, todas as fases/métricas ativas.
 const state = {
@@ -418,7 +431,7 @@ function renderTeamList(){
       `<span class="caret ${open ? 'open' : ''}">▶</span>` +
       `<span class="dot" style="background:${teamColor(t)}"></span>` +
       `<input type="checkbox" ${allOn ? 'checked' : ''}>` +
-      `<span class="nm">${t}</span>` +
+      `<span class="nm">${flag(t)}${t}</span>` +
       `<span class="ct">${selCount}/${tg.length}</span>`;
     // clique no nome/caret expande; no checkbox seleciona
     head.querySelector('.nm').onclick = head.querySelector('.caret').onclick = () => {
@@ -439,7 +452,7 @@ function renderTeamList(){
         row.className = 'gopt';
         row.innerHTML =
           `<input type="checkbox" ${state.selected.has(g._id) ? 'checked' : ''}>` +
-          `<span>vs ${g.adversario}</span><span class="fs">${g.fase}</span>` +
+          `<span>vs ${flag(g.adversario)}${g.adversario}</span><span class="fs">${g.fase}</span>` +
           `<span class="pl">${g.placar}</span>`;
         row.querySelector('input').onchange = e => {
           e.target.checked ? state.selected.add(g._id) : state.selected.delete(g._id);
@@ -465,12 +478,12 @@ function renderTable(){
 
   const teamsShown = [...new Set(cols.map(c => c.team))];
   legend.innerHTML = teamsShown.map(t =>
-    `<span class="it"><span class="dot" style="background:${teamColor(t)}"></span>${t}</span>`).join('');
+    `<span class="it"><span class="dot" style="background:${teamColor(t)}"></span>${flag(t)}${t}</span>`).join('');
 
   let head = '<thead><tr><th class="stat">Estatística</th>';
   cols.forEach(c => {
     head += `<th class="col"><div class="colhead">` +
-      `<span class="nm"><span class="dot" style="background:${teamColor(c.team)}"></span>${c.title}</span>` +
+      `<span class="nm"><span class="dot" style="background:${teamColor(c.team)}"></span>${flag(c.team)}${c.title}</span>` +
       `<span class="pl">${c.sub}</span>` +
       (c.fase ? `<span class="fs">${c.fase}</span>` : '') +
       `<span class="bar-under" style="background:${teamColor(c.team)}"></span></div></th>`;
