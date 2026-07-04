@@ -291,16 +291,24 @@ var IDX = ['IFE','IDO','P(Vitória %)','xGD'];
 var DIMS = [
   {name:'Ataque',      comps:[['xG (Gols Esperados)',.40],['Grandes Chances',.25],['Chutes no Alvo',.20],['Finalizações',.15]]},
   {name:'Finalização', comps:[['Gols − xG',.40],['@xg_por_fin',.30],['Grandes Chances Convertidas',.30]]},
-  {name:'Construção',  comps:[['Posse de Bola (%)',.35],['Passes Certos',.30],['Entradas no Último Terço',.35]]},
-  {name:'Território',  comps:[['Toques na Área',.40],['Ações no Último Terço',.30],['Faltas Sofridas no Último Terço',.30]]},
+  {name:'Posse',       comps:[['Posse de Bola (%)',.35],['Passes Certos',.30],['Entradas no Último Terço',.35]]},
+  {name:'Pressão',     comps:[['Toques na Área',.40],['Ações no Último Terço',.30],['Faltas Sofridas no Último Terço',.30]]},
   {name:'Defesa',      comps:[['xG Concedido',.45,true],['Grandes Chances Concedidas',.30,true],['Gols Evitados',.15],['Duelos Ganhos (%)',.10]]}
 ];
+/* tooltips das dimensões do radar (chave = nome da dimensão) */
+var DIM_TIPS = {
+  'Ataque':'Quanto o time cria: xG, grandes chances, chutes no alvo e finalizações.',
+  'Finalização':'Quanto o time converte o que cria: gols acima/abaixo do xG, xG por finalização e grandes chances convertidas.',
+  'Posse':'Controle do jogo com a bola: posse, passes certos e chegada ao terço final.',
+  'Pressão':'Quanto o time joga no campo do adversário: toques na área, ações no último terço e faltas sofridas lá.',
+  'Defesa':'Quanto o time cede: xG e grandes chances concedidos (menos = melhor), gols evitados e duelos ganhos.'
+};
 /* grupos curados do Comparar/Perfil (o expansor mostra o resto do payload) */
 var CB = [
-  {name:'Ataque',     metrics:['xG (Gols Esperados)','Grandes Chances','Chutes no Alvo','Finalizações','Toques na Área']},
-  {name:'Eficiência', metrics:['Gols','Gols − xG','Grandes Chances Convertidas']},
-  {name:'Defesa',     metrics:['Gols Sofridos','xG Concedido','Grandes Chances Concedidas','Gols Evitados']},
-  {name:'Construção', metrics:['Posse de Bola (%)','Passes Certos','Entradas no Último Terço','Duelos Ganhos (%)']}
+  {name:'Ataque',        metrics:['xG (Gols Esperados)','Grandes Chances','Chutes no Alvo','Finalizações','Toques na Área']},
+  {name:'Eficiência',    metrics:['Gols','Gols − xG','Grandes Chances Convertidas']},
+  {name:'Defesa',        metrics:['Gols Sofridos','xG Concedido','Grandes Chances Concedidas','Gols Evitados']},
+  {name:'Posse & Passe', metrics:['Posse de Bola (%)','Passes Certos','Entradas no Último Terço','Duelos Ganhos (%)']}
 ];
 /* métricas em que MENOR é melhor: ranking, destaque e ordenação invertem */
 var INV = {'Gols Sofridos':1,'xG Concedido':1,'Grandes Chances Concedidas':1};
@@ -518,7 +526,7 @@ function renderCompare(){
     var scores=sel.map(function(t){return dimScore(t,dim);});
     var best=Math.max.apply(null,[-1].concat(scores.map(function(s){return s==null?-1:s;})));
     var cells=sel.map(function(t,i){ var s=scores[i]; return '<span class="ds" style="font-weight:'+(s===best&&best>0?'800':'600')+';color:'+PAL[i%PAL.length]+'">'+(s==null?'–':s)+'</span>'; }).join('');
-    return '<div class="dimrow"><span class="dn">'+dim.name+'</span>'+cells+'</div>';
+    return '<div class="dimrow"><span class="dn" title="'+esc(DIM_TIPS[dim.name]||'')+'" style="cursor:help">'+dim.name+'</span>'+cells+'</div>';
   }).join('');
 
   function barGroups(list){

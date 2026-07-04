@@ -385,11 +385,11 @@ DIMENSOES = {
         ("Gols − xG", .40), ("@xg_por_fin", .30),
         ("Grandes Chances Convertidas", .30),
     ],
-    "Construção": [
+    "Posse": [
         ("Posse de Bola (%)", .35), ("Passes Certos", .30),
         ("Entradas no Último Terço", .35),
     ],
-    "Território": [
+    "Pressão": [
         ("Toques na Área", .40), ("Ações no Último Terço", .30),
         ("Faltas Sofridas no Último Terço", .30),
     ],
