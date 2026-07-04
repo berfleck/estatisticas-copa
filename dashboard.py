@@ -172,6 +172,7 @@ _TEMPLATE = r"""<!doctype html>
   tbody tr.statrow:hover td.stat{background:color-mix(in srgb, var(--accent) 9%, var(--surface))}
   .cell{display:flex; flex-direction:column; align-items:flex-end; gap:3px}
   .num{font-variant-numeric:tabular-nums; letter-spacing:-.01em}
+  .pm{font-variant-numeric:tabular-nums; color:var(--muted); font-size:11px; margin-left:5px}
   .num.lead{font-weight:700}
   .track{width:100%; height:5px; background:var(--track); border-radius:3px; overflow:hidden}
   .fill{height:100%; border-radius:3px; min-width:2px}
@@ -303,6 +304,15 @@ function aggregate(games, label){
   return round2(sum);
 }
 
+// Desvio-padrão amostral (consistência) de uma métrica entre os jogos do time.
+function stddev(games, label){
+  const vals = games.map(g => g.values[label]).filter(v => v !== null && v !== undefined);
+  if (vals.length < 2) return null;
+  const m = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const varc = vals.reduce((a, b) => a + (b - m) * (b - m), 0) / (vals.length - 1);
+  return round2(Math.sqrt(varc));
+}
+
 function columns(){
   const games = activeGames();
   if (state.view === 'jogo'){
@@ -320,6 +330,7 @@ function columns(){
     return {
       team: t, title: t, sub: tg.length + (tg.length === 1 ? ' jogo' : ' jogos'), fase: '',
       value: label => aggregate(tg, label),
+      stdOf: label => stddev(tg, label),
     };
   });
 }
@@ -511,7 +522,15 @@ function renderTable(){
         const w = Math.max(2, Math.round((v / max) * 100));
         bar = `<div class="track"><div class="fill" style="width:${w}%;background:${teamColor(c.team)}"></div></div>`;
       }
-      body += `<td class="val"><div class="cell"><span class="num${isLead ? ' lead' : ''}">${fmt(v)}</span>${bar}</div></td>`;
+      // Consistência: na visão por seleção, mostra o desvio-padrão do IDO
+      // (menor = a seleção rendeu de forma mais estável entre os jogos).
+      let consist = '';
+      if (s.label === 'IDO' && state.view === 'selecao' && c.stdOf){
+        const sd = c.stdOf('IDO');
+        if (sd !== null) consist =
+          `<span class="pm" title="Consistência: desvio-padrão do IDO nos jogos (menor = mais estável)">±${fmt(sd)}</span>`;
+      }
+      body += `<td class="val"><div class="cell"><span class="num${isLead ? ' lead' : ''}">${fmt(v)}${consist}</span>${bar}</div></td>`;
     });
     body += '</tr>';
   });

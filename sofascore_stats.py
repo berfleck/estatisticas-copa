@@ -656,8 +656,17 @@ def main():
     summary_cols = [c for c in SUMMARY_COLS if c in df.columns]
     mean_cols = {c for c in summary_cols if "(%)" in c or c in INDEX_LABELS}
     agg_map = {c: ("mean" if c in mean_cols else "sum") for c in summary_cols}
-    agg = (df.groupby("selecao")[summary_cols].agg(agg_map)
-             .round(2).rename_axis(ID_LABELS["selecao"]))
+    agg = df.groupby("selecao")[summary_cols].agg(agg_map).round(2)
+
+    # Consistência: nº de jogos e desvio-padrão do IDO por seleção. Desvio baixo
+    # = a seleção rendeu de forma estável entre os jogos; alto = oscilou muito.
+    # std de <2 jogos é indefinido -> 0.
+    agg.insert(0, "Jogos", df.groupby("selecao")["event_id"].nunique())
+    if "IDO" in agg.columns:
+        desvio = df.groupby("selecao")["IDO"].std().round(1).fillna(0)
+        agg.insert(agg.columns.get_loc("IDO") + 1, "IDO (desvio)", desvio)
+
+    agg = agg.rename_axis(ID_LABELS["selecao"])
     agg.to_csv(RESUMO_CSV, encoding="utf-8-sig")
 
     # ---- Dashboard HTML interativo (offline) ----
