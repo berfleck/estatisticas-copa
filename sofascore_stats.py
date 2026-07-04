@@ -78,8 +78,10 @@ STATS_CSV = "sofascore_stats.csv"
 RESUMO_CSV = "sofascore_resumo.csv"
 
 # Traduz as fases do mata-mata (nome cru da API -> PT). Grupos vira "Grupos".
+# A fração segue o nº de CONFRONTOS (oitavas = 16 equipes/8 jogos), então o
+# "Round of 32" (32 equipes/16 jogos) é 1/16 da final: 16-avos de final.
 PHASE_PT = {
-    "Round of 32": "32-avos de final",
+    "Round of 32": "16-avos de final",
     "Round of 16": "Oitavas de final",
     "Quarterfinals": "Quartas de final",
     "Semifinals": "Semifinais",
@@ -88,8 +90,13 @@ PHASE_PT = {
     "Final": "Final",
 }
 # Ordem canônica das fases (para chips do dashboard e ordenação).
-PHASE_ORDER = ["Grupos", "32-avos de final", "Oitavas de final",
+PHASE_ORDER = ["Grupos", "16-avos de final", "Oitavas de final",
                "Quartas de final", "Semifinais", "Disputa de 3º lugar", "Final"]
+
+# Rótulos de fase antigos -> atuais. A fase fica CARIMBADA no CSV de cache na
+# coleta, então renomear em PHASE_PT não basta: load_existing() aplica este
+# mapa para corrigir caches gravados com o nome antigo.
+PHASE_LEGACY = {"32-avos de final": "16-avos de final"}
 
 # Tradução dos nomes das seleções (EN -> PT). Nomes desconhecidos ficam como
 # vieram (nada é perdido). Aplicada na coleta, então vale p/ CSV e dashboard.
@@ -465,6 +472,11 @@ def load_existing(path):
     # Colunas derivadas são recalculadas em main(); descarta versões antigas do
     # CSV para não deixarem fantasmas (ex.: coluna "Índice" após virar "IDO").
     df = df.drop(columns=[c for c in COMPUTED_COLS if c in df.columns])
+
+    # Corrige rótulos de fase antigos gravados no cache (ex.: "32-avos de
+    # final" -> "16-avos de final").
+    if "fase" in df.columns:
+        df["fase"] = df["fase"].replace(PHASE_LEGACY)
 
     id_cols = ["selecao", "adversario", "placar", "fase", "event_id"]
     stat_cols = [c for c in df.columns if c not in id_cols]
