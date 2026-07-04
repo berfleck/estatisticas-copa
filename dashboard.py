@@ -503,8 +503,12 @@ function renderMetricMenu(){
 function renderCompare(){
   var teams=teamsInPhase();
   var sel=state.compare.filter(function(t){return teams.indexOf(t)>=0;});
-  var titleRow='<div class="sechead"><div class="title lg">Comparar seleções</div>'+
-    (sel.length<4? '<div class="addwrap"><input class="addinput" data-act="q:compare" value="'+esc(state.compareQuery)+'" placeholder="+ adicionar seleção">'+renderAddMenu(teams,sel)+'</div>':'')+'</div>';
+  /* Soma × Média/jogo (percentuais e índices são sempre média) — só faz
+     sentido com barras na tela, i.e. 2+ seleções */
+  var aggSeg=sel.length>=2? '<div class="seg sm" title="Como agregar as contagens dos jogos considerados. Percentuais e índices (IFE, IDO, P de vitória, xGD) são sempre média.">'+
+    [['media','Média/jogo'],['soma','Soma']].map(function(a){return '<button class="'+(state.agg===a[0]?'on':'')+'" data-act="agg:'+a[0]+'">'+a[1]+'</button>';}).join('')+'</div>' : '';
+  var titleRow='<div class="sechead"><div class="title lg">Comparar seleções</div><div class="rowctrl">'+aggSeg+
+    (sel.length<4? '<div class="addwrap"><input class="addinput" data-act="q:compare" value="'+esc(state.compareQuery)+'" placeholder="+ adicionar seleção">'+renderAddMenu(teams,sel)+'</div>':'')+'</div></div>';
 
   var sug=['Brasil','Argentina','França','Espanha','Inglaterra','Portugal'].filter(function(t){return teams.indexOf(t)>=0&&sel.indexOf(t)<0;}).slice(0,3);
   var sugH=sug.map(function(t){return '<button class="linka" data-act="addCompare:'+esc(t)+'">'+t+'</button>';}).join('');
@@ -568,7 +572,7 @@ function renderCompare(){
     '<div class="ccards" style="grid-template-columns:repeat('+sel.length+',1fr)">'+cards+'</div>'+confronto+
     '<div class="cmp"><div class="radarcard"><div class="rt">Perfil de jogo comparado</div><div class="rcenter">'+radarSVG(sel)+'</div>'+
       '<div class="legend">'+legend+'</div>'+
-      '<div class="dimtbl"><div class="h">Dimensões · escore 0–100</div>'+dimtbl+'<div class="dimnote">50 = média da Copa · z-score dos jogos selecionados</div></div>'+
+      '<div class="dimtbl"><div class="h">Dimensões · escore 0–100</div>'+dimtbl+'<div class="dimnote">50 = média da Copa · calculadas sempre sobre a MÉDIA POR JOGO dos jogos selecionados (o seletor Soma/Média não as afeta)</div></div>'+
     '</div><div>'+bars+moreBtn+moreBars+'</div></div></section>';
 }
 /* grupos do payload ainda não exibidos na curadoria (menos os índices) */
@@ -659,6 +663,7 @@ app.addEventListener('click', function(e){
   else if(k==='clearTeam'){ state.team=null; state.teamQuery=''; }
   else if(k==='removeCompare'){ state.compare=state.compare.filter(function(x){return x!==v;}); }
   else if(k==='addCompare'){ if(state.compare.indexOf(v)<0&&state.compare.length<4) state.compare.push(v); state.compareQuery=''; }
+  else if(k==='agg'){ state.agg=v; }
   else if(k==='toggleAllMetrics'){ state.showAllMetrics=!state.showAllMetrics; }
   else if(k==='restoreAll'){ state.excluded=new Set(); }
   else if(k==='restoreTeam'){ teamPhaseGames(v).forEach(function(g){state.excluded.delete(gkey(g));}); }
