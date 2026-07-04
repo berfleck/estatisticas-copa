@@ -23,17 +23,20 @@ from flags import TEAM_FLAGS
 
 
 def build_dashboard(games, groups, out_path="dashboard.html",
-                    phases=None, generated_at=""):
+                    phases=None, generated_at="", descriptions=None):
     """
     games : lista de dicts {selecao, adversario, placar, fase, event_id,
                             values:{rótulo: valor}}
     groups: lista de dicts {name, stats:[rótulo, ...]}
     phases: lista ordenada de fases presentes (para os chips).
+    descriptions: dict {rótulo: texto} — tooltip exibido ao passar o mouse
+                  sobre o nome da métrica (só as que precisam de explicação).
     """
     payload = {
         "games": games,
         "groups": groups,
         "phases": phases or [],
+        "descriptions": descriptions or {},
         "generatedAt": generated_at,
     }
     data_json = json.dumps(payload, ensure_ascii=False)
@@ -159,6 +162,7 @@ _TEMPLATE = r"""<!doctype html>
     min-width:180px; font-weight:500; color:var(--ink2); border-right:1px solid var(--grid);
   }
   thead th.stat{z-index:3}
+  .dfn{border-bottom:1px dotted var(--muted); cursor:help}
   th.col{padding:8px 10px; text-align:right; vertical-align:bottom; min-width:106px}
   .colhead{display:flex; flex-direction:column; align-items:flex-end; gap:2px}
   .colhead .nm{display:flex; align-items:center; gap:6px; font-weight:600}
@@ -233,6 +237,7 @@ const GAMES = DATA.games;
 GAMES.forEach((g, i) => g._id = i);          // id único por (seleção x jogo)
 const GROUPS = DATA.groups;
 const PHASES = DATA.phases;
+const DESC = DATA.descriptions || {};
 
 // seleções em ordem alfabética (pt-BR, respeitando acentos)
 const TEAMS = [...new Set(GAMES.map(g => g.selecao))]
@@ -262,6 +267,8 @@ const LATEST_PHASE = PHASES.length ? PHASES[PHASES.length - 1] : null;
 
 const isPct = l => l.includes('(%)');
 const round2 = x => Math.round(x * 100) / 100;
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;')
+  .replace(/</g,'&lt;').replace(/>/g,'&gt;');
 function fmt(v){
   if (v === null || v === undefined) return '–';
   return Number.isInteger(v) ? v.toLocaleString('pt-BR')
@@ -513,7 +520,9 @@ function renderTable(){
     const hasNeg = nums.some(v => v < 0);
     const max = nums.length ? Math.max(...nums) : 0;
     const lead = nums.length ? Math.max(...nums) : null;
-    body += `<tr class="statrow"><td class="stat">${s.label}</td>`;
+    const d = DESC[s.label];
+    const lab = d ? `<span class="dfn" title="${esc(d)}">${s.label}</span>` : s.label;
+    body += `<tr class="statrow"><td class="stat">${lab}</td>`;
     cols.forEach((c, i) => {
       const v = raw[i];
       const isLead = v !== null && v !== undefined && cols.length > 1 && v === lead && max !== 0;

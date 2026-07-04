@@ -349,6 +349,28 @@ STAT_GROUPS = {
     ],
 }
 
+# Descrições curtas (viram tooltip no dashboard) das métricas menos óbvias.
+# Métricas fora deste dict simplesmente não têm tooltip. NÃO use aspas duplas
+# nos textos (eles entram no atributo title=... do HTML).
+STAT_DESCRIPTIONS = {
+    "IDO": ("Índice de Desempenho vs Odds: quanto o time superou (positivo) ou "
+            "ficou abaixo (negativo) do desempenho que as odds pré-jogo previam. "
+            "0 = rendeu exatamente como o mercado esperava."),
+    "P(Vitória %)": ("Probabilidade de vitória pré-jogo, calculada das odds de "
+                     "abertura (1X2, já sem a margem da banca). Baixo = era "
+                     "azarão; alto = era favorito."),
+    "xGD": ("Saldo de gols esperados no jogo: xG a favor menos xG contra. "
+            "Positivo = criou chances melhores que as do adversário."),
+    "xG (Gols Esperados)": ("Gols esperados: soma da probabilidade de gol de cada "
+                            "finalização. Mede a qualidade das chances criadas, "
+                            "não o placar."),
+    "Grandes Chances": ("Oportunidades claras de gol — situações em que se espera "
+                        "que o atacante marque."),
+    "Duelos Ganhos (%)": "Percentual de disputas de bola (no chão e aéreas) vencidas.",
+    "Gols Evitados": ("Gols que o goleiro evitou além do esperado para aqueles "
+                      "chutes — mede a qualidade das defesas."),
+}
+
 
 def parse_statistics(stats_json, home_name, away_name, target_team):
     """
@@ -691,7 +713,7 @@ def main():
         })
     phases = [p for p in PHASE_ORDER if p in set(df["fase"])]
     build_dashboard(games, groups, "dashboard.html",
-                    phases=phases,
+                    phases=phases, descriptions=STAT_DESCRIPTIONS,
                     generated_at=datetime.now().strftime("%d/%m/%Y %H:%M"))
 
     print("\nArquivos salvos: sofascore_stats.csv, sofascore_resumo.csv "
