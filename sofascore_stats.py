@@ -292,7 +292,8 @@ INDEX_LABELS = ["IDO", "IFE", "P(Vitória %)", "xGD"]
 # Colunas DERIVADAS que são recalculadas toda execução — descartadas ao carregar
 # o CSV para nunca ficarem defasadas (P(Vitória %) NÃO entra: é dado de cache).
 # "Índice" é o nome legado do IDO, mantido só para limpar CSVs antigos.
-COMPUTED_COLS = ["IDO", "IFE", "xGD", "Índice"]
+COMPUTED_COLS = ["IDO", "IFE", "xGD", "xG Concedido",
+                 "Grandes Chances Concedidas", "Índice"]
 
 # Encolhimento do ajuste de desempenho do IFE: com n jogos considerados, o
 # resíduo médio entra com peso n/(n+IFE_SHRINK) — assim poucos jogos de
@@ -353,6 +354,7 @@ STAT_GROUPS = {
         "Duelos Aéreos (ganhos)", "Dribles (certos)",
     ],
     "Defesa": [
+        "xG Concedido", "Grandes Chances Concedidas",
         "Desarmes", "Desarmes Ganhos (%)", "Interceptações",
         "Recuperações de Bola", "Cortes", "Erros que Levaram a Finalização",
         "Erros que Levaram a Gol",
@@ -362,6 +364,81 @@ STAT_GROUPS = {
         "Defesas de Pênalti", "Socos do Goleiro", "Tiros de Meta",
     ],
 }
+
+# As 5 dimensões compostas do dashboard (radar/escores 0-100). Formato:
+# {nome: [(métrica, peso) | (métrica, peso, inverter)]}. Chaves com "@" são
+# derivadas por team-jogo (ver _DERIVADAS); "inverter" = quanto menor, melhor.
+# O escore no dashboard é a média ponderada dos z-scores dos componentes
+# (régua global de baseline_dimensoes), mapeada por 50 + 15*z para 0-100.
+# Calibração: os pesos aqui e o fator 15 no front (dimScore) são os únicos
+# pontos de sintonia.
+DIMENSOES = {
+    "Ataque": [
+        ("xG (Gols Esperados)", .40), ("Grandes Chances", .25),
+        ("Chutes no Alvo", .20), ("Finalizações", .15),
+    ],
+    "Finalização": [
+        ("@xg_por_fin", .50), ("@sot_pct", .25),
+        ("Grandes Chances Convertidas", .25),
+    ],
+    "Construção": [
+        ("Passes Certos", .45), ("Posse de Bola (%)", .35), ("Passes", .20),
+    ],
+    "Pressão": [
+        ("Toques na Área", .30), ("Chutes Dentro da Área", .20),
+        ("Entradas no Último Terço", .20), ("Ações no Último Terço", .15),
+        ("Faltas Sofridas no Último Terço", .15),
+    ],
+    "Defesa": [
+        ("xG Concedido", .30, True), ("Grandes Chances Concedidas", .20, True),
+        ("Gols Evitados", .12), ("Defesas Difíceis", .08), ("Desarmes", .10),
+        ("Interceptações", .10), ("Recuperações de Bola", .06),
+        ("Duelos Ganhos (%)", .04),
+    ],
+}
+
+# Componentes derivados por team-jogo (não são colunas do CSV). O front
+# calcula os mesmos valores por jogo com estas chaves.
+_DERIVADAS = {
+    "@xg_por_fin": lambda d: d["xG (Gols Esperados)"]
+    / d["Finalizações"].where(d["Finalizações"] > 0),
+    "@sot_pct": lambda d: d["Chutes no Alvo"]
+    / d["Finalizações"].where(d["Finalizações"] > 0),
+}
+
+
+def _valor_componente(df, key):
+    """Série (por team-jogo) de um componente de dimensão; NaN onde faltar."""
+    if key in _DERIVADAS:
+        try:
+            return _DERIVADAS[key](df)
+        except KeyError:
+            return pd.Series(dtype=float)
+    if key not in df.columns:
+        return pd.Series(dtype=float)
+    return pd.to_numeric(df[key], errors="coerce")
+
+
+def baseline_dimensoes(df):
+    """
+    Régua global das dimensões: média e desvio-padrão de cada componente
+    sobre TODOS os team-jogos da base. Vai no payload como "dimsBaseline" —
+    o dashboard usa esta régua (fixa) para os z-scores, de modo que filtrar
+    jogos muda o escore da seleção, não a régua. Componentes sem dados ficam
+    de fora (o front ignora componentes sem baseline).
+    """
+    out = {}
+    comps = {c for spec in DIMENSOES.values() for (c, *_) in spec}
+    for c in sorted(comps):
+        s = _valor_componente(df, c).dropna()
+        if s.empty:
+            continue
+        sd = float(s.std())
+        if sd != sd or sd == 0:          # NaN (n<2) ou constante
+            sd = 1.0
+        out[c] = {"mean": round(float(s.mean()), 4), "sd": round(sd, 4)}
+    return out
+
 
 # Descrições curtas (viram tooltip no dashboard) das métricas menos óbvias.
 # Métricas fora deste dict simplesmente não têm tooltip. NÃO use aspas duplas
@@ -390,6 +467,9 @@ STAT_DESCRIPTIONS = {
                             "não o placar."),
     "Grandes Chances": ("Oportunidades claras de gol — situações em que se espera "
                         "que o atacante marque."),
+    "xG Concedido": ("Gols esperados criados pelo ADVERSÁRIO no jogo — mede a "
+                     "qualidade das chances que a defesa cedeu."),
+    "Grandes Chances Concedidas": "Oportunidades claras de gol cedidas ao adversário.",
     "Duelos Ganhos (%)": "Percentual de disputas de bola (no chão e aéreas) vencidas.",
     "Gols Evitados": ("Gols que o goleiro evitou além do esperado para aqueles "
                       "chutes — mede a qualidade das defesas."),
@@ -625,6 +705,16 @@ def compute_performance_index(df):
     total_xg, n_xg = grp.transform("sum"), grp.transform("count")
     df["xGD"] = (df[xg] - (total_xg - df[xg])).round(2)
     df.loc[n_xg < 2, "xGD"] = np.nan
+
+    # Métricas "sofridas" = produção do ADVERSÁRIO no mesmo jogo. Entram na
+    # dimensão Defesa e ficam canônicas nos CSVs (grupo "Defesa" no dashboard).
+    df["xG Concedido"] = (total_xg - df[xg]).round(2)
+    df.loc[n_xg < 2, "xG Concedido"] = np.nan
+    bc = "Grandes Chances"
+    if bc in df.columns:
+        grp_bc = df.groupby("event_id")[bc]
+        df["Grandes Chances Concedidas"] = grp_bc.transform("sum") - df[bc]
+        df.loc[grp_bc.transform("count") < 2, "Grandes Chances Concedidas"] = np.nan
 
     prob = pd.to_numeric(df["P(Vitória %)"], errors="coerce") / 100.0
     ok = df["xGD"].notna() & prob.notna()
@@ -862,6 +952,7 @@ def main():
     build_dashboard(games, groups, "dashboard.html",
                     phases=phases, descriptions=STAT_DESCRIPTIONS,
                     ife_mkt=ife_mkt, ife_shrink=IFE_SHRINK,
+                    dims=DIMENSOES, dims_baseline=baseline_dimensoes(df),
                     generated_at=datetime.now().strftime("%d/%m/%Y %H:%M"))
 
     print("\nArquivos salvos: sofascore_stats.csv, sofascore_resumo.csv "

@@ -1,77 +1,4 @@
-#!/usr/bin/env python3
-"""
-dashboard.py
-------------
-Gera um dashboard HTML interativo e OFFLINE (dashboard.html) a partir dos
-dados coletados de TODA a Copa. É um arquivo único, sem servidor e sem
-dependências — basta abrir no navegador (duplo-clique). As fontes (Google
-Fonts) são progressivas: sem internet, cai nas fontes do sistema.
-
-Três visões:
-    - Painel  : ranking de todas as seleções por IFE/IDO (+ métrica à escolha).
-    - Comparar: até 4 seleções lado a lado — radar das 5 dimensões compostas
-                (Ataque, Finalização, Construção, Pressão, Defesa), projeção
-                de confronto direto pela diferença de IFE e barras por métrica.
-    - Perfil  : uma seleção em detalhe — índices, jogos (incluir/excluir um
-                jogo recalcula IFE/IDO/dimensões) e ranking em cada métrica.
-
-Uso (chamado automaticamente por sofascore_stats.py):
-    from dashboard import build_dashboard
-    build_dashboard(games, groups, "dashboard.html", phases=[...])
-"""
-
-import json
-
-from flags import TEAM_FLAGS
-
-
-def build_dashboard(games, groups, out_path="dashboard.html",
-                    phases=None, generated_at="", descriptions=None,
-                    ife_mkt=None, ife_shrink=4.0,
-                    dims=None, dims_baseline=None):
-    """
-    games : lista de dicts {selecao, adversario, placar, fase, event_id,
-                            ifeRes, values:{rótulo: valor}}
-    groups: lista de dicts {name, stats:[rótulo, ...]}
-    phases: lista ordenada de fases presentes (para os chips).
-    descriptions: dict {rótulo: texto} — tooltip exibido ao passar o mouse
-                  sobre o nome da métrica (só as que precisam de explicação).
-    ife_mkt: dict {seleção: rating de mercado} — com o ifeRes de cada jogo,
-             permite recalcular o IFE no navegador considerando só os jogos
-             selecionados: mercado + média(resíduos) × n/(n+ife_shrink).
-    dims: spec canônica das 5 dimensões compostas
-          ({nome: [(métrica, peso[, inverter])]}). Se omitida/vazia, o
-          dashboard usa a spec embutida no próprio HTML.
-    dims_baseline: régua global {métrica: {mean, sd}} dos z-scores das
-          dimensões. Se omitida/vazia, o dashboard monta a régua no cliente
-          a partir dos próprios games.
-
-    As bandeiras (TEAM_FLAGS) vão DENTRO do payload, na chave "flags" —
-    o template lê DATA.flags.
-    """
-    payload = {
-        "games": games,
-        "groups": groups,
-        "phases": phases or [],
-        "descriptions": descriptions or {},
-        "ifeMkt": ife_mkt or {},
-        "ifeShrink": ife_shrink,
-        # None (e não {}) quando ausentes: o front testa truthiness antes de
-        # substituir a spec/régua locais.
-        "dims": dims or None,
-        "dimsBaseline": dims_baseline or None,
-        "flags": TEAM_FLAGS,
-        "generatedAt": generated_at,
-    }
-    # count=1: substitui SÓ o placeholder do <script id="viz-data"> (a 1ª
-    # ocorrência); um eventual "__DATA__" em texto/JS do template fica intacto.
-    html = _TEMPLATE.replace("__DATA__", json.dumps(payload, ensure_ascii=False), 1)
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(html)
-    return out_path
-
-
-_TEMPLATE = r"""<!doctype html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
@@ -650,4 +577,3 @@ function boot(data){
 </script>
 </body>
 </html>
-"""
