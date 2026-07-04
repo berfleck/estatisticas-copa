@@ -162,7 +162,11 @@ _TEMPLATE = r"""<!doctype html>
     min-width:180px; font-weight:500; color:var(--ink2); border-right:1px solid var(--grid);
   }
   thead th.stat{z-index:3}
-  .dfn{border-bottom:1px dotted var(--muted); cursor:help}
+  .qmark{display:inline-flex; align-items:center; justify-content:center;
+    width:13px; height:13px; margin-left:5px; border-radius:50%;
+    border:1px solid var(--muted); color:var(--muted); font-size:9px;
+    line-height:1; font-weight:600; cursor:help; vertical-align:middle}
+  .qmark:hover{color:var(--ink2); border-color:var(--ink2)}
   th.col{padding:8px 10px; text-align:right; vertical-align:bottom; min-width:106px}
   .colhead{display:flex; flex-direction:column; align-items:flex-end; gap:2px}
   .colhead .nm{display:flex; align-items:center; gap:6px; font-weight:600}
@@ -266,6 +270,9 @@ const state = {
 const LATEST_PHASE = PHASES.length ? PHASES[PHASES.length - 1] : null;
 
 const isPct = l => l.includes('(%)');
+// Métricas que são nota/probabilidade: sempre média, nunca soma.
+const MEAN_ONLY = new Set(['IDO', 'P(Vitória %)']);
+const alwaysMean = l => isPct(l) || MEAN_ONLY.has(l);
 const round2 = x => Math.round(x * 100) / 100;
 const esc = s => String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;')
   .replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -307,7 +314,7 @@ function aggregate(games, label){
   const vals = games.map(g => g.values[label]).filter(v => v !== null && v !== undefined);
   if (!vals.length) return null;
   const sum = vals.reduce((a, b) => a + b, 0);
-  if (isPct(label) || state.agg === 'media') return round2(sum / vals.length);
+  if (alwaysMean(label) || state.agg === 'media') return round2(sum / vals.length);
   return round2(sum);
 }
 
@@ -521,8 +528,8 @@ function renderTable(){
     const max = nums.length ? Math.max(...nums) : 0;
     const lead = nums.length ? Math.max(...nums) : null;
     const d = DESC[s.label];
-    const lab = d ? `<span class="dfn" title="${esc(d)}">${s.label}</span>` : s.label;
-    body += `<tr class="statrow"><td class="stat">${lab}</td>`;
+    const help = d ? `<span class="qmark" title="${esc(d)}">?</span>` : '';
+    body += `<tr class="statrow"><td class="stat">${s.label}${help}</td>`;
     cols.forEach((c, i) => {
       const v = raw[i];
       const isLead = v !== null && v !== undefined && cols.length > 1 && v === lead && max !== 0;
@@ -549,7 +556,8 @@ function renderTable(){
 
 function renderFoot(){
   document.getElementById('foot').textContent =
-    'Percentuais são sempre média; contagens seguem Soma/Média. As barras comparam valores dentro de cada linha; ' +
+    'Percentuais, IDO e P(Vitória %) são sempre média; contagens seguem Soma/Média. ' +
+    'Na visão por seleção, o IDO mostra a média ±desvio (consistência). As barras comparam valores dentro de cada linha; ' +
     'em métricas com valor negativo (ex.: Gols Evitados) a barra é omitida. Cores são atribuídas às seleções em exibição.';
 }
 
