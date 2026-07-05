@@ -202,6 +202,39 @@ def get_season_events(ut_id, season_id):
     return out
 
 
+def get_upcoming_matches(ut_id, season_id):
+    """
+    Confrontos AGENDADOS (ainda não iniciados) do mata-mata — os "próximos
+    jogos". Percorre só as rodadas com slug (mata-mata; a fase de grupos não
+    tem confronto pré-definido) e devolve [{home, away, fase, ts}] ordenado por
+    horário. Alimenta os atalhos de comparação no dashboard (ex.: adicionar os
+    dois times de um confronto das oitavas). Não têm estatísticas, então NÃO
+    entram nos CSVs — são passados direto ao payload a cada coleta.
+    """
+    meta = sofa_get(f"unique-tournament/{ut_id}/season/{season_id}/rounds")
+    rounds = (meta or {}).get("rounds") or []
+    out = []
+    for rd in rounds:
+        slug = rd.get("slug")
+        if not slug:                       # pula grupos (sem slug/chaveamento)
+            continue
+        path = (f"unique-tournament/{ut_id}/season/{season_id}"
+                f"/events/round/{rd.get('round')}/slug/{slug}")
+        data = sofa_get(path)
+        if not data:
+            continue
+        for ev in data.get("events", []):
+            if ev.get("status", {}).get("type") == "notstarted":
+                out.append({
+                    "home": pt_team(ev["homeTeam"]["name"]),
+                    "away": pt_team(ev["awayTeam"]["name"]),
+                    "fase": _phase_label(rd.get("name")),
+                    "ts": ev.get("startTimestamp", 0),
+                })
+    out.sort(key=lambda m: m["ts"])
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Extração de estatísticas
 # ---------------------------------------------------------------------------
@@ -965,10 +998,21 @@ def main():
             "values": {m: _json_num(r[m]) for m in all_metrics},
         })
     phases = [p for p in PHASE_ORDER if p in set(df["fase"])]
+
+    # Confrontos agendados do mata-mata (próximos jogos) — atalhos de
+    # comparação no dashboard. Só os que ambos os times já têm dados na base.
+    known_teams = set(df["selecao"])
+    next_matches = [m for m in get_upcoming_matches(UNIQUE_TOURNAMENT_ID, season_id)
+                    if m["home"] in known_teams and m["away"] in known_teams]
+    if next_matches:
+        prox = next_matches[0]["fase"]
+        print(f"  {len(next_matches)} confronto(s) agendado(s) — próxima fase: {prox}")
+
     build_dashboard(games, groups, "dashboard.html",
                     phases=phases, descriptions=STAT_DESCRIPTIONS,
                     ife_mkt=ife_mkt, ife_shrink=IFE_SHRINK,
                     dims=DIMENSOES, dims_baseline=baseline_dimensoes(df),
+                    next_matches=next_matches,
                     generated_at=datetime.now().strftime("%d/%m/%Y %H:%M"))
 
     print("\nArquivos salvos: sofascore_stats.csv, sofascore_resumo.csv "

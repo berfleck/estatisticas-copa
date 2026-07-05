@@ -28,7 +28,7 @@ from flags import TEAM_FLAGS
 def build_dashboard(games, groups, out_path="dashboard.html",
                     phases=None, generated_at="", descriptions=None,
                     ife_mkt=None, ife_shrink=4.0,
-                    dims=None, dims_baseline=None):
+                    dims=None, dims_baseline=None, next_matches=None):
     """
     games : lista de dicts {selecao, adversario, placar, fase, event_id,
                             ifeRes, values:{rótulo: valor}}
@@ -45,6 +45,8 @@ def build_dashboard(games, groups, out_path="dashboard.html",
     dims_baseline: régua global {métrica: {mean, sd}} dos z-scores das
           dimensões. Se omitida/vazia, o dashboard monta a régua no cliente
           a partir dos próprios games.
+    next_matches: confrontos agendados do mata-mata [{home, away, fase, ts}] —
+          viram atalhos de comparação na aba Comparar quando ela está vazia.
 
     As bandeiras (TEAM_FLAGS) vão DENTRO do payload, na chave "flags" —
     o template lê DATA.flags.
@@ -60,6 +62,7 @@ def build_dashboard(games, groups, out_path="dashboard.html",
         # substituir a spec/régua locais.
         "dims": dims or None,
         "dimsBaseline": dims_baseline or None,
+        "nextMatches": next_matches or [],
         "flags": TEAM_FLAGS,
         "generatedAt": generated_at,
     }
@@ -172,6 +175,12 @@ section{padding-top:22px}
 .miniflag{width:20px;height:14px;border-radius:2px;object-fit:cover;box-shadow:0 0 0 .5px rgba(26,24,19,.2)}
 .empty{border:1px dashed rgba(26,24,19,.2);border-radius:16px;padding:44px 24px;text-align:center;color:var(--muted)}
 .empty .et{font-family:var(--serif);font-size:19px;color:var(--ink2);margin-bottom:6px}
+.vsgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(238px,1fr));gap:8px;margin-bottom:16px}
+.vsbtn{display:flex;align-items:center;justify-content:center;gap:10px;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:12px;cursor:pointer;font-size:13.5px;color:var(--ink)}
+.vsbtn:hover{border-color:rgba(47,125,85,.55);background:#fff}
+.vsbtn .vteam{display:flex;align-items:center;gap:7px;font-weight:600;min-width:0}
+.vsbtn .vteam span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vsbtn .vx{color:var(--faint);font-weight:700;flex:0 0 auto;font-size:12px}
 .linka{color:var(--acc);font-weight:600;background:none;border:0;cursor:pointer;margin:0 4px}
 
 .ccards{display:grid;gap:12px;margin-bottom:18px}
@@ -287,7 +296,7 @@ section{padding-top:22px}
    trouxer dims/dimsBaseline (spec canônica do pipeline Python),
    eles substituem a spec/régua locais.
    ============================================================ */
-var DATA, FLAGS, GAMES, TEAMS, GROUPS, PHASES, DESC, IFE_MKT, IFE_SHRINK, OPP, BASE, DIST;
+var DATA, FLAGS, GAMES, TEAMS, GROUPS, PHASES, DESC, IFE_MKT, IFE_SHRINK, OPP, BASE, DIST, NEXT;
 var app = document.getElementById('app');
 
 var PAL = ['#c0392b','#2f6fb0','#c8781c','#6b4bb0'];
@@ -548,6 +557,9 @@ function renderCompare(){
   var sug=['Brasil','Argentina','França','Espanha','Inglaterra','Portugal'].filter(function(t){return teams.indexOf(t)>=0&&sel.indexOf(t)<0;}).slice(0,3);
   var sugH=sug.map(function(t){return '<button class="linka" data-act="addCompare:'+esc(t)+'">'+t+'</button>';}).join('');
   if(!sel.length){
+    var nx=renderNextMatches();
+    if(nx) return '<section>'+titleRow+nx+
+      '<div class="empty" style="padding:20px"><div>Ou use a busca acima para comparar quaisquer duas seleções'+(sugH?' — ex.: '+sugH:'')+'.</div></div></section>';
     return '<section>'+titleRow+'<div class="empty"><div class="et">Escolha duas seleções para comparar</div><div>Sugestões: '+sugH+'</div></div></section>';
   }
 
@@ -620,6 +632,23 @@ function extraGroups(){
     if(ms.length) out.push({name:g.name, metrics:ms});
   });
   return out;
+}
+/* Atalhos de confronto (próximos jogos do mata-mata): cada botão adiciona os
+   dois times ao Comparar. Só confrontos com ambos os times já na base. */
+function renderNextMatches(){
+  if(!NEXT||!NEXT.length) return '';
+  var ms=NEXT.filter(function(m){return TEAMS.indexOf(m.home)>=0&&TEAMS.indexOf(m.away)>=0;});
+  if(!ms.length) return '';
+  var fases=[]; ms.forEach(function(m){ if(fases.indexOf(m.fase)<0) fases.push(m.fase); });
+  return fases.map(function(fase){
+    var cards=ms.filter(function(m){return m.fase===fase;}).map(function(m){
+      return '<button class="vsbtn" data-act="addPair:'+esc(m.home)+'|'+esc(m.away)+'" title="Comparar '+esc(m.home)+' e '+esc(m.away)+'">'+
+        '<span class="vteam">'+fimg(m.home,'miniflag')+'<span>'+m.home+'</span></span>'+
+        '<span class="vx">×</span>'+
+        '<span class="vteam">'+fimg(m.away,'miniflag')+'<span>'+m.away+'</span></span></button>';
+    }).join('');
+    return '<div class="overline" style="margin:0 2px 10px">Próximos confrontos · '+fase+'</div><div class="vsgrid">'+cards+'</div>';
+  }).join('');
 }
 function renderAddMenu(teams,sel){
   var q=norm(state.compareQuery.trim()); if(!q) return '';
@@ -708,6 +737,7 @@ app.addEventListener('click', function(e){
   else if(k==='clearTeam'){ state.team=null; state.teamQuery=''; }
   else if(k==='removeCompare'){ state.compare=state.compare.filter(function(x){return x!==v;}); }
   else if(k==='addCompare'){ if(state.compare.indexOf(v)<0&&state.compare.length<4) state.compare.push(v); state.compareQuery=''; }
+  else if(k==='addPair'){ var pr=v.split('|'); state.compare=pr.filter(function(x){return TEAMS.indexOf(x)>=0;}).slice(0,2); state.compareQuery=''; }
   else if(k==='agg'){ state.agg=v; }
   else if(k==='toggleAllMetrics'){ state.showAllMetrics=!state.showAllMetrics; }
   else if(k==='restoreAll'){ state.excluded=new Set(); }
@@ -732,6 +762,7 @@ function boot(data){
   DATA=data; FLAGS=data.flags||{}; GAMES=data.games;
   GROUPS=data.groups; PHASES=data.phases; DESC=data.descriptions||{};
   IFE_MKT=data.ifeMkt||{}; IFE_SHRINK=data.ifeShrink||4;
+  NEXT=data.nextMatches||[];
   state.phases=new Set(PHASES);
   TEAMS=Object.keys(GAMES.reduce(function(a,g){a[g.selecao]=1;return a;},{})).sort(function(a,b){return a.localeCompare(b,'pt-BR');});
   /* spec/régua canônicas do Python, quando presentes no payload */
