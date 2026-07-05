@@ -385,7 +385,7 @@ DIMENSOES = {
         ("Gols − xG", .40), ("@xg_por_fin", .30),
         ("Grandes Chances Convertidas", .30),
     ],
-    "Posse": [
+    "Controle": [
         ("Posse de Bola (%)", .35), ("Passes Certos", .30),
         ("Entradas no Último Terço", .35),
     ],

@@ -220,7 +220,7 @@ var IDX = ['IFE','IDO','P(Vitória %)','xGD'];
 var DIMS = [
   {name:'Ataque',      comps:[['xG (Gols Esperados)',.40],['Grandes Chances',.25],['Chutes no Alvo',.20],['Finalizações',.15]]},
   {name:'Finalização', comps:[['Gols − xG',.40],['@xg_por_fin',.30],['Grandes Chances Convertidas',.30]]},
-  {name:'Posse',       comps:[['Posse de Bola (%)',.35],['Passes Certos',.30],['Entradas no Último Terço',.35]]},
+  {name:'Controle',    comps:[['Posse de Bola (%)',.35],['Passes Certos',.30],['Entradas no Último Terço',.35]]},
   {name:'Pressão',     comps:[['Toques na Área',.40],['Ações no Último Terço',.30],['Faltas Sofridas no Último Terço',.30]]},
   {name:'Defesa',      comps:[['xG Concedido',.45,true],['Grandes Chances Concedidas',.30,true],['Gols Evitados',.15],['Duelos Ganhos (%)',.10]]}
 ];
@@ -228,7 +228,7 @@ var DIMS = [
 var DIM_TIPS = {
   'Ataque':'Quanto o time cria: xG, grandes chances, chutes no alvo e finalizações.',
   'Finalização':'Quanto o time converte o que cria: gols acima/abaixo do xG, xG por finalização e grandes chances convertidas.',
-  'Posse':'Controle do jogo com a bola: posse, passes certos e chegada ao terço final.',
+  'Controle':'Controle do jogo com a bola: posse, passes certos e chegada ao terço final.',
   'Pressão':'Quanto o time joga no campo do adversário: toques na área, ações no último terço e faltas sofridas lá.',
   'Defesa':'Quanto o time cede: xG e grandes chances concedidos (menos = melhor), gols evitados e duelos ganhos.'
 };
