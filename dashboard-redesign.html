@@ -240,7 +240,9 @@ var CB = [
   {name:'Posse & Passe', metrics:['Posse de Bola (%)','Passes Certos','Entradas no Último Terço','Duelos Ganhos (%)']}
 ];
 /* métricas em que MENOR é melhor: ranking, destaque e ordenação invertem */
-var INV = {'Gols Sofridos':1,'xG Concedido':1,'Grandes Chances Concedidas':1};
+var INV = {'Gols Sofridos':1,'xG Concedido':1,'Grandes Chances Concedidas':1,
+  'Grandes Chances Perdidas':1,'Perdas de Bola':1,'Cartões Amarelos':1,
+  'Cartões Vermelhos':1,'Erros que Levaram a Finalização':1,'Erros que Levaram a Gol':1};
 
 var state = {
   mode:'painel', phases:null, sortKey:'IFE', customMetric:null,
