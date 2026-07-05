@@ -316,7 +316,7 @@ var CB = [
 var INV = {'Gols Sofridos':1,'xG Concedido':1,'Grandes Chances Concedidas':1};
 
 var state = {
-  mode:'painel', phase:'all', sortKey:'IFE', customMetric:null,
+  mode:'painel', phases:null, sortKey:'IFE', customMetric:null,
   metricMenuOpen:false, metricQuery:'', agg:'media', showAllMetrics:false,
   compare:[], compareQuery:'', team:null, teamQuery:'', excluded:new Set()
 };
@@ -337,7 +337,7 @@ function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); 
 /* busca sem acentos/caixa: "franca" acha "França" */
 function norm(s){ return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
 
-function phaseGames(){ return state.phase==='all'? GAMES : GAMES.filter(function(g){return g.fase===state.phase;}); }
+function phaseGames(){ return GAMES.filter(function(g){return state.phases.has(g.fase);}); }
 function teamPhaseGames(t){ return phaseGames().filter(function(g){return g.selecao===t;}); }
 function gkey(g){ return g.selecao+'|'+g.event_id; }
 function teamGames(t){ return teamPhaseGames(t).filter(function(g){return !state.excluded.has(gkey(g));}); }
@@ -432,7 +432,9 @@ function renderHead(){
 
 function renderToolbar(){
   var modes=[['painel','Painel'],['compare','Comparar'],['team','Perfil']].map(function(m){ return '<button data-act="mode:'+m[0]+'" class="'+(state.mode===m[0]?'on':'')+'">'+m[1]+'</button>'; }).join('');
-  var chips=[['all','Todas']].concat(PHASES.map(function(p){return [p,p];})).map(function(p){ return '<button class="chip '+(state.phase===p[0]?'on':'')+'" data-act="phase:'+esc(p[0])+'">'+p[1]+'</button>'; }).join('');
+  var allOn=state.phases.size===PHASES.length;
+  var chips='<button class="chip '+(allOn?'on':'')+'" data-act="phaseAll">Todas</button>'+
+    PHASES.map(function(p){ return '<button class="chip '+(state.phases.has(p)?'on':'')+'" data-act="phase:'+esc(p)+'">'+p+'</button>'; }).join('');
   var restore = state.excluded.size? '<button class="restore" data-act="restoreAll" title="Voltar a considerar todos os jogos">↺ '+state.excluded.size+' jogo(s) ocultos · restaurar</button>' : '';
   return '<div class="toolbar"><div class="tools">'+
     '<div class="seg">'+modes+'</div><div class="vr"></div>'+
@@ -448,6 +450,9 @@ function renderView(){
 /* ---- Painel ---- */
 function renderPainel(){
   var teams=teamsInPhase();
+  if(!state.phases.size){
+    return '<section><div class="empty"><div class="et">Nenhuma fase selecionada</div><div>Toque em <strong>Todas</strong> ou escolha ao menos uma fase acima.</div></div></section>';
+  }
   var rows=teams.map(function(t){ return {t:t, ife:ifeOf(t), ido:idoOf(t), cust:state.customMetric?valueFor(t,state.customMetric):null, n:teamGames(t).length}; });
   var sk=state.sortKey;
   rows.sort(function(a,b){ var va=sk==='IFE'?a.ife:sk==='IDO'?a.ido:a.cust, vb=sk==='IFE'?b.ife:sk==='IDO'?b.ido:b.cust;
@@ -654,7 +659,8 @@ app.addEventListener('click', function(e){
   var b=e.target.closest('[data-act]'); if(!b) return;
   var a=b.dataset.act; var idx=a.indexOf(':'); var k=idx<0?a:a.slice(0,idx), v=idx<0?null:a.slice(idx+1);
   if(k==='mode'){ state.mode=v; state.metricMenuOpen=false; }
-  else if(k==='phase'){ state.phase=v; }
+  else if(k==='phase'){ state.phases.has(v)? state.phases.delete(v) : state.phases.add(v); }
+  else if(k==='phaseAll'){ state.phases.size===PHASES.length? state.phases.clear() : state.phases=new Set(PHASES); }
   else if(k==='sort'){ state.sortKey=v; state.customMetric=null; }
   else if(k==='toggleMetricMenu'){ state.metricMenuOpen=!state.metricMenuOpen; state.metricQuery=''; }
   else if(k==='pickMetric'){ state.customMetric=v; state.sortKey=v; state.metricMenuOpen=false; state.metricQuery=''; }
@@ -687,6 +693,7 @@ function boot(data){
   DATA=data; FLAGS=data.flags||{}; GAMES=data.games;
   GROUPS=data.groups; PHASES=data.phases; DESC=data.descriptions||{};
   IFE_MKT=data.ifeMkt||{}; IFE_SHRINK=data.ifeShrink||4;
+  state.phases=new Set(PHASES);
   TEAMS=Object.keys(GAMES.reduce(function(a,g){a[g.selecao]=1;return a;},{})).sort(function(a,b){return a.localeCompare(b,'pt-BR');});
   /* spec/régua canônicas do Python, quando presentes no payload */
   if(data.dims) DIMS=Object.keys(data.dims).map(function(n){return {name:n,comps:data.dims[n]};});
