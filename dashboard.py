@@ -220,7 +220,9 @@ section{padding-top:22px}
 .dimrow .dn{flex:1;color:var(--ink2)}
 .qm{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;margin-left:5px;border-radius:50%;border:1px solid var(--faint);color:var(--muted);font-size:9px;line-height:1;font-weight:700;cursor:help;vertical-align:1px}
 .qm:hover{color:var(--ink2);border-color:var(--ink2)}
-.dimrow .ds{width:36px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.dimrow .ds{width:40px;text-align:center;font-variant-numeric:tabular-nums;font-weight:600;font-size:13px;border-radius:7px;padding:3px 0}
+.dimrow .ds.win{color:#fff;font-weight:800}
+.dimrow .ds.lose{opacity:.4;font-weight:600}
 .dimnote{font-size:10.5px;color:var(--faint);margin-top:8px;line-height:1.45}
 .grphead{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:700;margin:4px 2px 10px}
 .mrow{margin-bottom:16px}
@@ -590,7 +592,10 @@ function renderCompare(){
   var dimtbl=DIMS.map(function(dim){
     var scores=sel.map(function(t){return dimScore(t,dim);});
     var best=Math.max.apply(null,[-1].concat(scores.map(function(s){return s==null?-1:s;})));
-    var cells=sel.map(function(t,i){ var s=scores[i]; return '<span class="ds" style="font-weight:'+(s===best&&best>0?'800':'600')+';color:'+PAL[i%PAL.length]+'">'+(s==null?'–':s)+'</span>'; }).join('');
+    var cells=sel.map(function(t,i){ var s=scores[i], col=PAL[i%PAL.length];
+      var win=s!=null&&s===best&&best>0;
+      var st=win? 'background:'+col : 'color:'+col;
+      return '<span class="ds '+(win?'win':'lose')+'" style="'+st+'">'+(s==null?'–':s)+'</span>'; }).join('');
     return '<div class="dimrow"><span class="dn">'+dim.name+qm(DIM_TIPS[dim.name])+'</span>'+cells+'</div>';
   }).join('');
 
