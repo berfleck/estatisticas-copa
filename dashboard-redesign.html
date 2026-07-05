@@ -174,6 +174,12 @@ section{padding-top:22px}
 .gmid .on{font-weight:600;font-size:13.5px}
 .gscore{font-weight:700;font-size:16px;font-variant-numeric:tabular-nums}
 .mgroups .grphead2{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:#b3ad9c;font-weight:700;margin:14px 2px 8px}
+.pctleg{background:#f4f1e9;border:1px solid var(--line);border-radius:11px;padding:11px 13px;margin:0 0 6px}
+.pctleg .lt{font-size:12px;color:var(--ink2);line-height:1.45}
+.pctleg .lt b{font-weight:600}
+.pctleg .scale{height:7px;border-radius:4px;margin:9px 0 4px;background:linear-gradient(90deg,#d3ccba,#8fb39b,#2f7d55)}
+.pctleg .ticks{display:flex;justify-content:space-between;font-size:10.5px;color:var(--faint);font-weight:600}
+.pctleg .ticks b{color:var(--ink2)}
 .statrow{display:grid;grid-template-columns:168px 1fr 66px 52px;align-items:center;gap:12px;padding:7px 2px;border-bottom:1px solid rgba(26,24,19,.06)}
 .statrow .sl{font-size:13px;color:var(--ink2)}
 .statrow .sv{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;font-size:14px}
@@ -605,7 +611,11 @@ function renderTeam(){
       '<div style="display:flex;align-items:baseline;justify-content:space-between;margin:0 2px 8px"><span class="overline">Jogos · '+teamGames(t).length+' de '+pg.length+'</span>'+(canRestore?'<button class="linka" data-act="restoreTeam:'+esc(t)+'">restaurar</button>':'')+'</div>'+
       '<div class="psub" style="margin:0 2px 8px;font-size:11px">Toque num jogo para incluí-lo/excluí-lo — IFE, IDO e as métricas recalculam.</div>'+
       '<div class="gtoggle">'+matches+'</div></div>'+
-      '<div class="mgroups"><div class="overline" style="margin:0 2px 4px">Rendimento por métrica'+qm('As barras das estatísticas mostram o desempenho no recorte de jogos selecionado comparado a um jogo típico da Copa: 0 = entre os mais fracos jogos-de-time, 50 = mediano, 100 = entre os melhores. Não muda se você seleciona 1 ou vários jogos. Já os índices (IFE, IDO, P de vitória, xGD) mostram a posição da seleção entre as '+ifeR.n+' do torneio (º).')+' <span style="text-transform:none;letter-spacing:0;color:var(--muted);font-weight:500">· estatísticas vs. jogo médio da Copa (0–100) · índices: ranking entre '+ifeR.n+'</span></div>'+groupsH+
+      '<div class="mgroups"><div class="overline" style="margin:0 2px 8px">Rendimento por métrica</div>'+
+      '<div class="pctleg"><div class="lt">O número de cada <b>estatística</b> vai de <b>0 a 100</b>: é como o desempenho nos jogos selecionados se compara a um <b>jogo típico da Copa</b>. Não é posição no ranking — e <b>não muda</b> se você seleciona 1 ou vários jogos. Nas métricas em que menos é melhor (gols sofridos, cartões…), 100 continua sendo o melhor.'+
+        '<div class="scale"></div><div class="ticks"><span>0 · <b>entre os piores</b></span><span>50 · típico</span><span><b>100 · entre os melhores</b></span></div>'+
+        '<div style="font-size:11px;color:var(--faint);margin-top:7px">Já os <b>índices</b> (IFE, IDO, P de vitória, xGD) mostram a posição da seleção entre as '+ifeR.n+' do torneio — por isso vêm com <b>º</b>.</div></div>'+
+      groupsH+
       '<div style="margin:14px 0 0"><button class="custbtn '+(state.showAllMetrics?'on':'')+'" data-act="toggleAllMetrics">'+(state.showAllMetrics?'ocultar métricas extras ▴':'ver todas as métricas ▾')+'</button></div></div>'+
     '</div></section>';
 }
