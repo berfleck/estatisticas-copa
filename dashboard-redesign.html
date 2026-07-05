@@ -208,7 +208,7 @@ section{padding-top:22px}
    trouxer dims/dimsBaseline (spec canônica do pipeline Python),
    eles substituem a spec/régua locais.
    ============================================================ */
-var DATA, FLAGS, GAMES, TEAMS, GROUPS, PHASES, DESC, IFE_MKT, IFE_SHRINK, OPP, BASE;
+var DATA, FLAGS, GAMES, TEAMS, GROUPS, PHASES, DESC, IFE_MKT, IFE_SHRINK, OPP, BASE, DIST;
 var app = document.getElementById('app');
 
 var PAL = ['#c0392b','#2f6fb0','#c8781c','#6b4bb0'];
@@ -280,6 +280,28 @@ function record(t){ var w=0,d=0,l=0,gf=0,ga=0; teamGames(t).forEach(function(g){
 function phaseReached(t){ var set={}; GAMES.filter(function(g){return g.selecao===t;}).forEach(function(g){set[g.fase]=1;}); for(var i=PHASES.length-1;i>=0;i--) if(set[PHASES[i]]) return PHASES[i]; return '—'; }
 function ordinal(t,label){ var arr=teamsInPhase().map(function(x){return {x:x,v:valueFor(x,label)};}).filter(function(o){return o.v!=null;}).sort(function(a,b){return INV[label]? a.v-b.v : b.v-a.v;}); var i=-1; for(var k=0;k<arr.length;k++) if(arr[k].x===t){i=k;break;} return {rank:i<0?null:i+1,n:arr.length,pct:i<0?0:(arr.length>1?(arr.length-1-i)/(arr.length-1):1)}; }
 function toggleGame(t,eid){ var k=t+'|'+eid; if(state.excluded.has(k)) state.excluded.delete(k); else state.excluded.add(k); render(); }
+
+/* Régua fixa por métrica: distribuição de TODOS os jogos-de-time da Copa
+   (nunca filtrada — não muda com fase/exclusão). Usada para o percentil das
+   barras do Perfil, que assim independem de quantos jogos foram selecionados. */
+function buildDist(){
+  DIST={}; var labels={};
+  GROUPS.forEach(function(g){ g.stats.forEach(function(s){ labels[s]=1; }); });
+  Object.keys(labels).forEach(function(lbl){
+    DIST[lbl]=GAMES.map(function(g){return g.values[lbl];}).filter(function(v){return v!=null;});
+  });
+}
+/* Percentil (0–1) da média-por-jogo do recorte na régua fixa. Para métricas
+   "menor é melhor" (INV) inverte, então 1 = melhor sempre. NUNCA usa soma. */
+function pctRank(t,label){
+  var v=meanOf(teamGames(t),label);
+  if(v==null) return {pct:0,val:null};
+  var arr=DIST[label];
+  if(!arr||arr.length<2) return {pct:.5,val:v};
+  var below=0; for(var i=0;i<arr.length;i++){ if(arr[i]<v) below++; }
+  var p=below/arr.length; if(INV[label]) p=1-p;
+  return {pct:Math.max(0,Math.min(1,p)),val:v};
+}
 
 /* ---------- dimensões (z-score, régua global) ---------- */
 function buildIndex(){
@@ -556,13 +578,18 @@ function renderTeam(){
   var pg2=[{name:'Índices & Odds',metrics:IDX}].concat(CB);
   if(state.showAllMetrics) pg2=pg2.concat(extraGroups());
   var groupsH=pg2.map(function(g){
-    var rows=g.metrics.map(function(label){ var v=valueFor(t,label); var rk=ordinal(t,label);
-      var barC=lerp('#d3ccba',ACC,rk.pct), txtC=lerp('#9a9486',ACC,rk.pct);
-      var vStyle= IDX.indexOf(label)>=0||label==='Gols − xG'? 'color:'+signColor(v):'';
+    var rows=g.metrics.map(function(label){
+      // Índices (IFE/IDO/P/xGD): ranking entre times (ratings, robustos a recorte).
+      // Métricas de jogo: percentil na régua fixa da Copa (média-por-jogo do recorte).
+      var isIdx=IDX.indexOf(label)>=0, v, pct, numTxt;
+      if(isIdx){ v=valueFor(t,label); var rk=ordinal(t,label); pct=rk.pct; numTxt=rk.rank!=null?rk.rank+'º':'–'; }
+      else { var pr=pctRank(t,label); v=pr.val==null?null:Math.round(pr.val*100)/100; pct=pr.pct; numTxt=pr.val==null?'–':Math.round(pct*100); }
+      var barC=lerp('#d3ccba',ACC,pct), txtC=lerp('#9a9486',ACC,pct);
+      var vStyle= isIdx||label==='Gols − xG'? 'color:'+signColor(v):'';
       return '<div class="statrow"><span class="sl">'+short(label)+qm(tip(label))+'</span>'+
-        '<span class="track sm"><span class="fill" style="width:'+(rk.pct*100)+'%;background:'+barC+'"></span></span>'+
+        '<span class="track sm"><span class="fill" style="width:'+(pct*100)+'%;background:'+barC+'"></span></span>'+
         '<span class="sv" style="'+vStyle+'">'+disp(label,v)+'</span>'+
-        '<span class="sr" style="color:'+txtC+'">'+(rk.rank!=null?rk.rank+'º':'–')+'</span></div>';
+        '<span class="sr" style="color:'+txtC+'">'+numTxt+'</span></div>';
     }).join('');
     return '<div class="grphead2">'+g.name+'</div>'+rows;
   }).join('');
@@ -578,7 +605,7 @@ function renderTeam(){
       '<div style="display:flex;align-items:baseline;justify-content:space-between;margin:0 2px 8px"><span class="overline">Jogos · '+teamGames(t).length+' de '+pg.length+'</span>'+(canRestore?'<button class="linka" data-act="restoreTeam:'+esc(t)+'">restaurar</button>':'')+'</div>'+
       '<div class="psub" style="margin:0 2px 8px;font-size:11px">Toque num jogo para incluí-lo/excluí-lo — IFE, IDO e as métricas recalculam.</div>'+
       '<div class="gtoggle">'+matches+'</div></div>'+
-      '<div class="mgroups"><div class="overline" style="margin:0 2px 4px">Rendimento por métrica <span style="text-transform:none;letter-spacing:0;color:var(--muted);font-weight:500">· posição entre '+ifeR.n+' seleções</span></div>'+groupsH+
+      '<div class="mgroups"><div class="overline" style="margin:0 2px 4px">Rendimento por métrica'+qm('As barras das estatísticas mostram o desempenho no recorte de jogos selecionado comparado a um jogo típico da Copa: 0 = entre os mais fracos jogos-de-time, 50 = mediano, 100 = entre os melhores. Não muda se você seleciona 1 ou vários jogos. Já os índices (IFE, IDO, P de vitória, xGD) mostram a posição da seleção entre as '+ifeR.n+' do torneio (º).')+' <span style="text-transform:none;letter-spacing:0;color:var(--muted);font-weight:500">· estatísticas vs. jogo médio da Copa (0–100) · índices: ranking entre '+ifeR.n+'</span></div>'+groupsH+
       '<div style="margin:14px 0 0"><button class="custbtn '+(state.showAllMetrics?'on':'')+'" data-act="toggleAllMetrics">'+(state.showAllMetrics?'ocultar métricas extras ▴':'ver todas as métricas ▾')+'</button></div></div>'+
     '</div></section>';
 }
@@ -627,6 +654,7 @@ function boot(data){
   /* spec/régua canônicas do Python, quando presentes no payload */
   if(data.dims) DIMS=Object.keys(data.dims).map(function(n){return {name:n,comps:data.dims[n]};});
   buildIndex();
+  buildDist();
   if(data.dimsBaseline) BASE=data.dimsBaseline;
   render();
 }
